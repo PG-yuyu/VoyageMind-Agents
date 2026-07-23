@@ -15,14 +15,8 @@ from collections import OrderedDict
 from datetime import datetime
 from typing import Any
 
-from schemas.itinerary_schema import (
-    ChangeType,
-    Itinerary,
-    ItineraryItem,
-    ItineraryStatus,
-    TripChange,
-    TripDiff,
-)
+from schemas.version import ChangeType, TripChange, TripDiff
+from schemas.itinerary import Itinerary, ItineraryItem, ItineraryStatus
 
 
 # ============================================================================

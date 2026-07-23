@@ -21,14 +21,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from schemas.itinerary_schema import (
+from schemas.evaluation import (
     EvaluationMetrics,
-    EvaluationResult,
-    ItemType,
+    HardConstraintEvaluation,
     Severity,
     ValidationCode,
     ValidationIssue,
 )
+from schemas.itinerary import ItemType
 
 
 # ---------------------------------------------------------------------------
@@ -66,8 +66,8 @@ def validate_itinerary(
     requirements: dict | object,
     places: list[dict] | None = None,
     routes: list[dict] | None = None,
-) -> EvaluationResult:
-    """对行程执行全部确定性规则校验。
+) -> HardConstraintEvaluation:
+    """对行程执行全部确定性规则校验（硬约束）。
 
     Args:
         itinerary: Itinerary 字典或对象
@@ -76,7 +76,7 @@ def validate_itinerary(
         routes: RouteResult 列表
 
     Returns:
-        EvaluationResult: 校验结果，passed=True 表示无 error 级问题
+        HardConstraintEvaluation: 硬约束校验结果，passed=True 表示无 error 级问题
     """
 
     it = _d(itinerary)
@@ -110,7 +110,7 @@ def validate_itinerary(
 
     # passed = 无 error 级别问题
     has_errors = any(i.severity == Severity.ERROR for i in issues)
-    return EvaluationResult(passed=not has_errors, issues=issues, metrics=metrics)
+    return HardConstraintEvaluation(passed=not has_errors, issues=issues, metrics=metrics)
 
 
 # ====================================================================

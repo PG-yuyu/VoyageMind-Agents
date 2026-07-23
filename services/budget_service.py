@@ -13,7 +13,8 @@
 
 from __future__ import annotations
 
-from schemas.itinerary_schema import BudgetSummary, ItemType
+from schemas.budget import BudgetSummary
+from schemas.itinerary import ItemType
 
 
 # ---------------------------------------------------------------------------
