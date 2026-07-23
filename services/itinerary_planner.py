@@ -20,8 +20,7 @@ import copy
 import uuid
 from datetime import datetime, timedelta
 
-from schemas.itinerary_schema import (
-    BudgetSummary,
+from schemas.itinerary import (
     Itinerary,
     ItineraryDay,
     ItineraryItem,
