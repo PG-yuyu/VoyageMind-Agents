@@ -145,12 +145,13 @@ class AdjustmentAgent:
                 "agent_trace": trace,
             }
 
-        cloned_dict = cloned.model_dump()
+        cloned_dict = cloned.model_dump(mode="json")
 
         # 锁定全部，然后解锁受影响的天
         lock_items_except(cloned, except_ids=[])
         if target_day:
-            unlock_items(cloned, [it.item_id for it in _day_items(cloned_dict, target_day)])
+            affected_ids = [it.get("item_id", "") for it in _day_items(cloned_dict, target_day)]
+            unlock_items(cloned, affected_ids)
 
         locked_items = []
         unlocked_items = []
