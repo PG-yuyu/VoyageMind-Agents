@@ -462,7 +462,6 @@ class PlanningAgent:
             "hotel_place_id": None,
             "total_cost": round(total_cost, 2),
             "status": "draft",
-            "created_at": None,
         }
 
     def _parse_json(self, raw: str) -> dict:
