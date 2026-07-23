@@ -14,14 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
-# ── 枚举 ───────────────────────────────────────────────────────────
-
-
-class Severity(str, Enum):
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
+from schemas.common import Severity
 
 
 class ValidationCode(str, Enum):
