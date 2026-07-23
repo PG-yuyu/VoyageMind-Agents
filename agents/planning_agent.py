@@ -23,6 +23,7 @@ from typing import Any, Callable
 
 from agents.planning_state import PlanningPhase, PlanningState
 from agents.itinerary_preference_critic import ItineraryPreferenceCritic
+from agents.evaluation_agent import EvaluationAgent
 
 from prompts.planning_preference_interpretation_prompt import (
     PLANNING_PREFERENCE_INTERPRETATION_PROMPT,
@@ -53,14 +54,18 @@ class PlanningAgent:
         self,
         llm_callable: Callable[[str], str],
         preference_critic: ItineraryPreferenceCritic | None = None,
+        evaluation_agent: EvaluationAgent | None = None,
     ):
         """
         Args:
             llm_callable: LLM 调用函数，签名 (prompt: str) -> str
             preference_critic: 软偏好评价器，不传则使用默认实例
+            evaluation_agent: 评价系统 Agent，用于双轨统一评价 + 重规划指令生成
+                            不传则使用内部默认组合（向后兼容）
         """
         self._llm = llm_callable
         self._critic = preference_critic or ItineraryPreferenceCritic(llm_callable)
+        self._evaluator = evaluation_agent
 
     # ====================================================================
     # 主入口
@@ -408,12 +413,34 @@ class PlanningAgent:
             except Exception as exc:
                 logger.warning("预算计算失败: %s", exc)
 
+        # ── 综合评价（使用 EvaluationAgent，如已配置） ─────────────
+        overall_evaluation = None
+        if self._evaluator and state.itinerary:
+            try:
+                overall_result = self._evaluator.evaluate(
+                    itinerary=state.itinerary,
+                    requirements=state.requirements,
+                    places=state.places,
+                    semantic_preferences=state.semantic_preferences,
+                    generate_replan_directives=(not state.is_completed),
+                )
+                overall_evaluation = overall_result.model_dump()
+                logger.info(
+                    "综合评价: passed=%s, score=%.2f, directives=%d",
+                    overall_result.passed,
+                    overall_result.overall_score,
+                    len(overall_result.replan_directives),
+                )
+            except Exception as exc:
+                logger.warning("综合评价失败: %s", exc)
+
         return {
             "itinerary": state.itinerary,
             "planning_policy": state.planning_policy,
             "budget": budget,
             "hard_evaluation": state.hard_evaluation,
             "soft_evaluation": state.soft_evaluation,
+            "overall_evaluation": overall_evaluation,  # v2 新增统一评价
             "trip_diff": None,  # 初次规划无 diff
             "need_follow_up": bool(state.errors),
             "follow_up_message": state.errors[-1] if state.errors else None,
