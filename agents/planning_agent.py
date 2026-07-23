@@ -428,19 +428,36 @@ class PlanningAgent:
     def _build_itinerary_dict(
         self, data: dict, requirements: dict
     ) -> dict[str, Any]:
-        """构建标准行程字典。"""
+        """构建标准行程字典（自动补全 LLM 输出缺失的必填字段）。"""
         import uuid
 
         total_cost = data.get("total_cost_estimate", 0) or 0
 
-        # 计算每日费用和步行距离
         days = []
         for day_data in data.get("days", []):
             day_num = day_data.get("day", 1)
-            items = day_data.get("items", [])
-            daily_cost = sum(
-                float(it.get("total_cost", 0) or 0) for it in items
-            )
+            raw_items = day_data.get("items", [])
+
+            # 补全每个 item 的必填字段
+            items = []
+            for idx, it in enumerate(raw_items):
+                item_id = it.get("item_id") or f"day{day_num}_item_{idx:03d}"
+                items.append({
+                    "item_id": item_id,
+                    "day": day_num,
+                    "item_type": it.get("item_type", "attraction"),
+                    "place_id": it.get("place_id"),
+                    "start_time": it.get("start_time", "09:00"),
+                    "end_time": it.get("end_time", "10:00"),
+                    "duration_minutes": it.get("duration_minutes", 60) or 60,
+                    "route_from_previous_id": it.get("route_from_previous_id"),
+                    "cost_per_person": float(it.get("cost_per_person", 0) or 0),
+                    "total_cost": float(it.get("total_cost", 0) or 0),
+                    "locked": it.get("locked", False),
+                    "note": it.get("note"),
+                })
+
+            daily_cost = sum(float(it["total_cost"]) for it in items)
             walking = day_data.get("walking_distance_m", 0) or 0
             days.append({
                 "day": day_num,
@@ -448,8 +465,8 @@ class PlanningAgent:
                 "items": items,
                 "daily_cost": round(daily_cost, 2),
                 "walking_distance_m": walking,
-                "start_time": items[0].get("start_time", "09:00") if items else "09:00",
-                "end_time": items[-1].get("end_time", "18:00") if items else "18:00",
+                "start_time": items[0]["start_time"] if items else "09:00",
+                "end_time": items[-1]["end_time"] if items else "18:00",
             })
 
         return {
