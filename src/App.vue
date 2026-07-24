@@ -751,15 +751,15 @@ async function submitAuth() {
       </section>
 
       <section v-else-if="activePage === 'trip'" class="page trip-page">
-        <template v-if="hasPlan">
         <div class="page-head">
           <div>
             <p class="eyebrow">Your Itinerary</p>
-            <h1>{{ requirements.city || '天津' }} {{ requirements.days || itineraryDays.length }} 日自由行</h1>
-            <p>按兴趣偏好、预算和步行强度生成，支持继续对话修改某一天或某个时段。</p>
+            <h1>{{ hasPlan ? `${requirements.city || '天津'} ${requirements.days || itineraryDays.length} 日自由行` : '我的行程' }}</h1>
+            <p>{{ hasPlan ? '按兴趣偏好、预算和步行强度生成，支持继续对话修改某一天或某个时段。' : '生成后这里会展示每天的时间线、地点详情和智能修改入口。' }}</p>
           </div>
         </div>
 
+        <template v-if="hasPlan">
         <section class="trip-overview">
           <article>
             <span>住宿锚点</span>
@@ -930,23 +930,23 @@ async function submitAuth() {
           </aside>
         </section>
         </template>
-        <section v-else class="empty-state">
+        <section v-else class="empty-state compact-empty">
           <p class="eyebrow">No Itinerary</p>
           <h1>还没有生成行程</h1>
-          <p>先在智能规划里告诉我天数、预算、同行人和偏好，生成后这里会展示每天的时间线、地点详情和智能修改入口。</p>
+          <p>先在智能规划里告诉我天数、预算、同行人和偏好，生成后这里会自动展示行程内容。</p>
           <button class="primary" @click="activePage = 'plan'">去生成行程</button>
         </section>
       </section>
 
       <section v-else-if="activePage === 'map'" class="page map-page">
-        <template v-if="hasPlan">
         <div class="page-head">
           <div>
             <p class="eyebrow">Route Map</p>
             <h1>路线地图</h1>
-            <p>展示每日地点顺序、路线和预计耗时，后续可接入高德地图组件。</p>
+            <p>{{ hasPlan ? '展示每日地点顺序、路线和预计耗时，后续可接入高德地图组件。' : '生成行程后，这里会展示每日地点顺序、路线节点和预计交通耗时。' }}</p>
           </div>
         </div>
+        <template v-if="hasPlan">
         <section class="panel map-panel">
           <div class="map-visual">
             <span class="pin hotel">酒店</span>
@@ -965,23 +965,23 @@ async function submitAuth() {
           </div>
         </section>
         </template>
-        <section v-else class="empty-state">
-          <p class="eyebrow">Route Map</p>
+        <section v-else class="empty-state compact-empty">
+          <p class="eyebrow">No Route</p>
           <h1>暂无路线</h1>
-          <p>生成行程后，这里会展示每日地点顺序、路线节点和预计交通耗时。</p>
+          <p>先生成天津旅行方案，路线图会在这里自动整理成可查看的节点顺序。</p>
           <button class="primary" @click="activePage = 'plan'">先去规划</button>
         </section>
       </section>
 
       <section v-else-if="activePage === 'budget'" class="page budget-page">
-        <template v-if="hasPlan">
         <div class="page-head">
           <div>
             <p class="eyebrow">Budget</p>
             <h1>预算概览</h1>
-            <p>预计花费 {{ totalSpent }} 元，剩余 {{ remainingBudget }} 元。</p>
+            <p>{{ hasPlan ? `预计花费 ${totalSpent} 元，剩余 ${remainingBudget} 元。` : '生成行程后，这里会展示酒店、餐饮、门票和交通费用拆分。' }}</p>
           </div>
         </div>
+        <template v-if="hasPlan">
         <section class="panel budget-panel">
           <div class="budget-ring">
             <strong>{{ budgetPercent }}%</strong>
@@ -998,10 +998,10 @@ async function submitAuth() {
           </div>
         </section>
         </template>
-        <section v-else class="empty-state">
-          <p class="eyebrow">Budget</p>
+        <section v-else class="empty-state compact-empty">
+          <p class="eyebrow">No Budget</p>
           <h1>暂无预算</h1>
-          <p>等行程生成后，系统会把酒店、餐饮、门票和交通费用拆开显示。</p>
+          <p>先生成一份天津行程，系统会把预算拆分成更容易检查的费用项。</p>
           <button class="primary" @click="activePage = 'plan'">先去规划</button>
         </section>
       </section>
