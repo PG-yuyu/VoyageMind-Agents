@@ -1,0 +1,42 @@
+# config/logging.yaml —— 日志配置
+version: 1
+# 加载方式：logging.config.dictConfig(yaml.safe_load(open("config/logging.yaml")))
+
+formatters:
+  # 控制台格式：人类可读
+  console:
+    format: "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+  # 文件格式：JSON（Step 16 使用自定义 JsonFormatter）
+  json:
+    (): core.json_formatter.JsonFormatter
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: console
+    stream: ext://sys.stderr
+  file:
+    # 用自定义的 Windows 兼容版轮转 Handler（core.safe_log_handler）：
+    # 标准 TimedRotatingFileHandler 在 Windows 跨午夜 rename 被占用的 app.log 时
+    # 会抛 PermissionError [WinError 32]，导致每次写日志都刷 "--- Logging error ---"。
+    # SafeTimedRotatingFileHandler 在 rename 失败时降级为「复制 + 原地清空」。
+    (): core.safe_log_handler.SafeTimedRotatingFileHandler
+    level: INFO
+    formatter: json
+    filename: logs/app.log
+    when: midnight
+    backupCount: 7
+    encoding: utf8
+    delay: true   # 延迟到首次写日志才打开文件，减少句柄占用
+
+root:
+  level: DEBUG
+  handlers: [console, file]
+
+loggers:
+  urllib3:
+    level: WARNING
+  asyncio:
+    level: WARNING

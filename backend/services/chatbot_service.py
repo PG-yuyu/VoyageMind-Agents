@@ -1,14 +1,17 @@
 import json
 import os
 import sys
+import asyncio
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+from dotenv import load_dotenv
+
 
 class ChatbotService:
-    """成员一对现有 langchain-chat 的轻量封装。
+    """成员一对 langchain-chat Chatbot 的封装。
 
-    优先复用 langchain-chat-main/src/core/chat_engine.py。
+    优先复用本项目内置的 backend/vendor/langchain_chat/src/core/chat_engine.py。
     如果本地依赖或模型配置不可用，接口仍返回规则兜底结果，方便三人并行联调。
     """
 
@@ -19,37 +22,40 @@ class ChatbotService:
         self._try_load_chat_engine()
 
     def _try_load_chat_engine(self) -> None:
-        root = Path(__file__).resolve().parents[3]
-        chat_src = root / "langchain-chat-main" / "src"
-        chat_root = root / "langchain-chat-main"
+        project_root = Path(__file__).resolve().parents[2]
+        vendor_root = project_root / "backend" / "vendor" / "langchain_chat"
+        chat_root = vendor_root
+        chat_src = chat_root / "src"
 
         if not chat_src.exists():
-            self.error = "未找到 langchain-chat-main/src"
+            self.error = "未找到内置 Chatbot：backend/vendor/langchain_chat/src"
             return
 
         try:
-            sys.path.insert(0, str(chat_src))
+            load_dotenv(project_root / ".env", override=True)
+            if str(chat_src) not in sys.path:
+                sys.path.insert(0, str(chat_src))
             cwd = Path.cwd()
             os.chdir(chat_root)
             from core.chat_engine import ChatEngine
             from core.config_manager import get_config
 
             if not os.environ.get("DEFAULT_MODEL"):
-                os.environ["DEFAULT_MODEL"] = "deepseek-v4-flash"
+                os.environ["DEFAULT_MODEL"] = "deepseek-chat"
             self.engine = ChatEngine(get_config())
             self.available = True
             os.chdir(cwd)
         except Exception as exc:
             self.error = str(exc)
             try:
-                os.chdir(root / "实训项目")
+                os.chdir(project_root)
             except OSError:
                 pass
 
     def chat(self, system_prompt: str, user_prompt: str) -> str:
         """调用改进封装后的 Chatbot。
 
-        这里复用 langchain-chat-main 的 ChatEngine，因此成员一的 Agent 不直接接触模型 SDK。
+        这里复用内置 langchain-chat 的 ChatEngine，因此成员一的 Agent 不直接接触模型 SDK。
         """
         if not self.available or self.engine is None:
             raise RuntimeError(self.error or "ChatbotService 不可用")
@@ -115,32 +121,10 @@ class ChatbotService:
         return self.chat(system, f"用户问题：{question}\n资料库检索结果：{context}")
 
     async def stream_travel_question(self, question: str, rag_result: dict | None = None) -> AsyncIterator[str]:
-        if not self.available or self.engine is None:
-            yield self._fallback_travel_answer(question)
-            return
-
-        from langchain_core.messages import HumanMessage, SystemMessage
-
-        messages = [
-            SystemMessage(
-                content=(
-                    "你是天津本地旅行问答助手。只回答天津旅行相关问题。"
-                    "如果提供了资料库证据，就结合证据回答；如果没有可用证据，也要基于通用旅行常识直接回答。"
-                    "没有证据时不要用冷冰冰的模板句，不要只说没找到资料。"
-                    "回答要具体，可给出景点、路线、时间段和注意事项。"
-                    "请使用 Markdown 输出：短开头 + 编号列表或项目符号列表；不要把多个编号挤在同一段。"
-                )
-            ),
-            HumanMessage(
-                content=(
-                    f"用户问题：{question}\n"
-                    f"资料库检索结果：{json.dumps(rag_result or {}, ensure_ascii=False)}"
-                )
-            ),
-        ]
-        async for text, _usage in self.engine.astream(messages):
-            if text:
-                yield str(text)
+        answer = self.answer_travel_question(question, rag_result)
+        for index in range(0, len(answer), 12):
+            yield answer[index : index + 12]
+            await asyncio.sleep(0.015)
 
     def _parse_json_object(self, text: str) -> dict[str, Any] | None:
         clean = text.strip()

@@ -1,0 +1,11 @@
+# config.dev.yaml —— 开发环境覆盖配置
+#
+# 合并规则：最终配置 = config.yaml（基础）+ config.dev.yaml（覆盖）
+# 这个文件只写「与基础配置不同的字段」，相同的不写。
+#
+# 开发环境特点：SQLite（轻量）、日志 DEBUG（最详细）
+
+storage:
+  type: sqlite                  # 开发环境用 SQLite（轻量、零配置）
+  sqlite:
+    path: data/sqlite/dev.db   # 开发环境用独立的数据库文件
