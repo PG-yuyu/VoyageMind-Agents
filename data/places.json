@@ -1,0 +1,50 @@
+[
+  {
+    "place_id": "place_001",
+    "name": "故宫博物院",
+    "place_type": "attraction",
+    "city": "北京",
+    "area": "东城区",
+    "tags": ["历史文化", "博物馆", "必看景点"],
+    "price": 60,
+    "open_time": "08:30-17:00",
+    "coordinate": {
+      "longitude": 116.397,
+      "latitude": 39.916
+    },
+    "description": "明清皇家宫殿建筑群，适合了解北京历史文化。",
+    "suitable_for": ["历史文化爱好者", "学生", "初次到访游客"]
+  },
+  {
+    "place_id": "place_002",
+    "name": "颐和园",
+    "place_type": "attraction",
+    "city": "北京",
+    "area": "海淀区",
+    "tags": ["园林", "湖景", "世界遗产"],
+    "price": 30,
+    "open_time": "06:30-18:00",
+    "coordinate": {
+      "longitude": 116.273,
+      "latitude": 39.999
+    },
+    "description": "以昆明湖、万寿山为核心的皇家园林，适合半日游。",
+    "suitable_for": ["家庭游客", "摄影爱好者", "文化游游客"]
+  },
+  {
+    "place_id": "place_003",
+    "name": "南锣鼓巷",
+    "place_type": "attraction",
+    "city": "北京",
+    "area": "东城区",
+    "tags": ["胡同", "城市漫步", "本地生活"],
+    "price": 0,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 116.404,
+      "latitude": 39.937
+    },
+    "description": "北京胡同街区，适合体验城市街巷和轻量夜游。",
+    "suitable_for": ["学生", "朋友出游", "城市漫步游客"]
+  }
+]

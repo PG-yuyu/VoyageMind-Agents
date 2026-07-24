@@ -1,0 +1,34 @@
+[
+  {
+    "place_id": "hotel_001",
+    "name": "东城舒适酒店",
+    "place_type": "hotel",
+    "city": "北京",
+    "area": "东城区",
+    "tags": ["交通方便", "靠近景点", "中等预算"],
+    "price": 480,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 116.405,
+      "latitude": 39.914
+    },
+    "description": "靠近核心景点和地铁站，适合作为北京短途游住宿点。",
+    "suitable_for": ["初次到访游客", "学生", "两人出行"]
+  },
+  {
+    "place_id": "hotel_002",
+    "name": "西城青年旅舍",
+    "place_type": "hotel",
+    "city": "北京",
+    "area": "西城区",
+    "tags": ["经济型", "公共交通方便", "适合学生"],
+    "price": 220,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 116.372,
+      "latitude": 39.918
+    },
+    "description": "价格相对友好，适合预算有限但希望交通便利的游客。",
+    "suitable_for": ["学生", "背包客", "预算敏感游客"]
+  }
+]

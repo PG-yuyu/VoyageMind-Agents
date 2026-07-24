@@ -1,0 +1,34 @@
+[
+  {
+    "place_id": "restaurant_001",
+    "name": "北京家常菜馆",
+    "place_type": "restaurant",
+    "city": "北京",
+    "area": "东城区",
+    "tags": ["本地风味", "家常菜", "中等预算"],
+    "price": 80,
+    "open_time": "11:00-21:30",
+    "coordinate": {
+      "longitude": 116.401,
+      "latitude": 39.915
+    },
+    "description": "提供北京家常菜，适合作为景点游览后的正餐选择。",
+    "suitable_for": ["朋友出游", "家庭游客", "本地风味体验"]
+  },
+  {
+    "place_id": "restaurant_002",
+    "name": "护国寺小吃",
+    "place_type": "restaurant",
+    "city": "北京",
+    "area": "西城区",
+    "tags": ["小吃", "老字号", "经济型"],
+    "price": 45,
+    "open_time": "06:00-21:00",
+    "coordinate": {
+      "longitude": 116.373,
+      "latitude": 39.933
+    },
+    "description": "北京传统小吃店，适合体验豆汁、焦圈等本地饮食。",
+    "suitable_for": ["学生", "小吃爱好者", "预算敏感游客"]
+  }
+]
