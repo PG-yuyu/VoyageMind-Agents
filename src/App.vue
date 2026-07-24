@@ -96,8 +96,6 @@ const defaultItineraryTemplates = itineraryDays.value.map((day) => ({
 }))
 
 const activeDay = ref(1)
-const selectedEditItem = ref(null)
-const editRequest = ref('')
 const smartAdjustInput = ref('')
 const smartAdjustPreview = ref(null)
 const appliedAdjustment = ref('')
@@ -491,16 +489,6 @@ function formatMessage(text) {
   return html
 }
 
-function selectEditItem(item) {
-  selectedEditItem.value = {
-    day: activeItinerary.value.day,
-    time: item.time,
-    title: item.title,
-    tag: item.tag
-  }
-  editRequest.value = `调整第 ${activeItinerary.value.day} 天 ${item.time} 的「${item.title}」`
-}
-
 function openPlaceDetail(item) {
   selectedPlace.value = placeDetails[item.title] || {
     image: 'https://images.unsplash.com/photo-1518156677180-95a2893f3e9f?auto=format&fit=crop&w=900&q=80',
@@ -508,21 +496,6 @@ function openPlaceDetail(item) {
     desc: item.desc,
     tips: [item.tag, item.route, '可根据天气、体力和预算继续调整']
   }
-}
-
-function applyEditPreset(text) {
-  const target = selectedEditItem.value
-    ? `第 ${selectedEditItem.value.day} 天 ${selectedEditItem.value.time}「${selectedEditItem.value.title}」`
-    : `第 ${activeItinerary.value.day} 天`
-  editRequest.value = `把${target}${text}`
-}
-
-function submitEditRequest() {
-  const text = editRequest.value.trim()
-  if (!text) return
-  appliedAdjustment.value = `已提交修改：${text}`
-  messages.value.push({ role: 'user', text })
-  messages.value.push({ role: 'assistant', text: '已收到修改要求，我会保持在当前行程页，并优先调整受影响的时间段。' })
 }
 
 function analyzeSmartAdjustment() {
@@ -834,7 +807,6 @@ async function submitAuth() {
                     <small>{{ item.route }}</small>
                     <div class="timeline-actions">
                       <em>{{ item.cost }} 元</em>
-                      <button @click="selectEditItem(item)">调整</button>
                     </div>
                   </footer>
                 </div>
