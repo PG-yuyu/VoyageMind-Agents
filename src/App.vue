@@ -668,7 +668,7 @@ async function submitAuth() {
         <span>当前计划</span>
         <strong v-if="hasPlan">{{ requirements.city || '天津' }} {{ requirements.days || itineraryDays.length }} 日游</strong>
         <strong v-else>还没有行程</strong>
-        <p>{{ hasPlan ? (requirements.interests?.join('、') || '已生成规划') : '先说出你的天津旅行想法' }}</p>
+        <p>{{ hasPlan ? (requirements.interests?.join('、') || '已生成规划') : '去智能规划创建' }}</p>
       </section>
 
       <button class="account-entry" @click="authOpen = true">
@@ -692,8 +692,8 @@ async function submitAuth() {
             </div>
             <div class="quick-prompts">
               <button @click="fillPrompt('帮我规划天津两日游，预算1800元，喜欢近代建筑和海河夜景。')">天津经典两日</button>
-              <button @click="fillPrompt('把第二天下午改成室内景点，并减少步行。')">减少步行</button>
-              <button @click="fillPrompt('五大道有哪些游览注意事项？请给出来源。', 'qa')">问五大道注意事项</button>
+              <button @click="fillPrompt('帮我规划天津一日游，带父母同行，预算1000元，尽量减少步行。')">父母轻松一日</button>
+              <button @click="fillPrompt('帮我规划天津三日游，预算3000元，想看海河夜景、近代建筑和本地美食。')">天津深度三日</button>
             </div>
           </div>
 
