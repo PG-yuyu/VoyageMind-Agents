@@ -16,7 +16,15 @@ from backend.app.schemas.route import RouteInfo, RouteRequest, RouteResult
 
 
 def valid_travel_request() -> TravelRequest:
-    return TravelRequest(city="北京", days=3, people=2, total_budget=3000)
+    return TravelRequest(
+        session_id="session_001",
+        city="北京",
+        days=3,
+        people=2,
+        total_budget=3000,
+        interests=["历史文化"],
+        transport_modes=["walking", "transit"],
+    )
 
 
 def valid_attraction() -> Place:
@@ -92,6 +100,7 @@ def test_can_build_valid_recommendation_context() -> None:
 
     assert context.session_id == "session_001"
     assert context.requirements.city == "北京"
+    assert context.requirements.interests == ["历史文化"]
 
 
 def test_empty_session_id_is_rejected() -> None:
@@ -101,6 +110,34 @@ def test_empty_session_id_is_rejected() -> None:
             requirements=valid_travel_request(),
             original_text="我们两个人去北京玩三天。",
         )
+
+
+def test_member1_travel_request_can_be_used_directly() -> None:
+    member1_request = TravelRequest(
+        session_id="session_001",
+        city="天津",
+        days=2,
+        people=2,
+        total_budget=1200,
+        interests=["近代建筑", "美食"],
+        must_visit=["五大道文化旅游区"],
+        avoid_places=["过度商业化景点"],
+        food_preferences=["天津菜"],
+        food_avoidances=["花生"],
+        walking_limit_m=6000,
+        daily_start_time="10:00",
+        daily_end_time="18:00",
+        travel_pace="relaxed",
+    )
+
+    context = RecommendationContext(
+        session_id="session_001",
+        requirements=member1_request,
+        original_text="两个人去天津两天，想看近代建筑和吃天津菜，步行别超过6000米。",
+    )
+
+    assert context.requirements is member1_request
+    assert context.requirements.must_visit == ["五大道文化旅游区"]
 
 
 def test_can_build_valid_recommendation_result() -> None:
@@ -144,15 +181,33 @@ def test_common_schema_compatibility_aliases() -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        {"city": "", "days": 3, "people": 2, "total_budget": 3000},
-        {"city": "北京", "days": 0, "people": 2, "total_budget": 3000},
-        {"city": "北京", "days": 3, "people": 0, "total_budget": 3000},
-        {"city": "北京", "days": 3, "people": 2, "total_budget": -1},
+        {"session_id": "session_001", "city": "", "days": 3, "people": 2, "total_budget": 3000},
+        {"session_id": "session_001", "city": "北京", "days": 0, "people": 2, "total_budget": 3000},
+        {"session_id": "session_001", "city": "北京", "days": 3, "people": 0, "total_budget": 3000},
+        {"session_id": "session_001", "city": "北京", "days": 3, "people": 2, "total_budget": -1},
     ],
 )
-def test_invalid_travel_request_is_rejected(payload: dict) -> None:
+def test_invalid_member1_travel_request_is_rejected_by_context(payload: dict) -> None:
     with pytest.raises(ValueError):
-        TravelRequest(**payload)
+        RecommendationContext(
+            session_id="session_001",
+            requirements=TravelRequest(**payload),
+            original_text="北京三日游。",
+        )
+
+
+def test_context_rejects_session_id_mismatch() -> None:
+    with pytest.raises(ValueError):
+        RecommendationContext(
+            session_id="session_001",
+            requirements=TravelRequest(
+                session_id="session_002",
+                city="北京",
+                days=3,
+                people=2,
+            ),
+            original_text="北京三日游。",
+        )
 
 
 @pytest.mark.parametrize(

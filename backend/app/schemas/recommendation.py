@@ -5,30 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.schemas import TravelRequest
+
 from .place import Place
 from .route import RouteInfo
-
-
-@dataclass(frozen=True)
-class TravelRequest:
-    """用户需求理解提取出的基础旅行需求"""
-
-    city: str
-    days: int
-    people: int
-    total_budget: float | None = None
-
-    def __post_init__(self) -> None:
-        """校验基础需求"""
-
-        if not self.city.strip():
-            raise ValueError("目标城市不能为空")
-        if self.days <= 0:
-            raise ValueError("旅行天数必须大于 0")
-        if self.people <= 0:
-            raise ValueError("出行人数必须大于 0")
-        if self.total_budget is not None and self.total_budget < 0:
-            raise ValueError("总预算不能为负数")
 
 
 @dataclass(frozen=True)
@@ -131,7 +111,17 @@ class RecommendationContext:
         if not self.session_id.strip():
             raise ValueError("会话编号不能为空")
         if not isinstance(self.requirements, TravelRequest):
-            raise TypeError("明确的旅行需求必须使用TravelRequest数据模型")
+            raise TypeError("明确的旅行需求必须使用成员一 TravelRequest 数据模型")
+        if self.requirements.session_id != self.session_id:
+            raise ValueError("推荐上下文会话编号必须与旅行需求会话编号一致")
+        if not self.requirements.city or not self.requirements.city.strip():
+            raise ValueError("目标城市不能为空")
+        if self.requirements.days is None or self.requirements.days <= 0:
+            raise ValueError("旅行天数必须大于 0")
+        if self.requirements.people <= 0:
+            raise ValueError("出行人数必须大于 0")
+        if self.requirements.total_budget is not None and self.requirements.total_budget < 0:
+            raise ValueError("总预算不能为负数")
         if not self.original_text.strip():
             raise ValueError("必须保留用户原始表达")
 
