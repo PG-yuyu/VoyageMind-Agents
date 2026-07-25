@@ -59,6 +59,9 @@ class Evidence:
     summary: str
     source: str
     page: int | None = None
+    evidence_type: str = "recommendation_reason"
+    sufficient: bool = True
+    missing_reason: str | None = None
 
     def __post_init__(self) -> None:
         """校验推荐依据必须可追溯。"""
@@ -69,6 +72,10 @@ class Evidence:
             raise ValueError("推荐依据摘要不能为空")
         if not self.source.strip():
             raise ValueError("推荐依据来源不能为空")
+        if not self.evidence_type.strip():
+            raise ValueError("推荐依据类型不能为空")
+        if not self.sufficient and not self.missing_reason:
+            raise ValueError("缺少可靠依据时必须说明原因")
         if self.page is not None and self.page <= 0:
             raise ValueError("页码必须大于 0")
 
@@ -120,7 +127,10 @@ class RecommendationContext:
             raise ValueError("旅行天数必须大于 0")
         if self.requirements.people <= 0:
             raise ValueError("出行人数必须大于 0")
-        if self.requirements.total_budget is not None and self.requirements.total_budget < 0:
+        if (
+            self.requirements.total_budget is not None
+            and self.requirements.total_budget < 0
+        ):
             raise ValueError("总预算不能为负数")
         if not self.original_text.strip():
             raise ValueError("必须保留用户原始表达")
@@ -129,6 +139,7 @@ class RecommendationContext:
 @dataclass(frozen=True)
 class RecommendationResult:
     """输出到旅游具体路线规划的推荐结果"""
+
     policy_summary: str
     attractions: list[Place] = field(default_factory=list)
     hotels: list[Place] = field(default_factory=list)
