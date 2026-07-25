@@ -37,7 +37,9 @@ class SessionStore:
         self.sessions[session_id].updated_at = now_iso()
         return message
 
-    def update_requirements(self, session_id: str, requirements: TravelRequest) -> TravelRequest:
+    def update_requirements(
+        self, session_id: str, requirements: TravelRequest
+    ) -> TravelRequest:
         self.ensure_session(session_id)
         self.requirements[session_id] = requirements
         self.sessions[session_id].updated_at = now_iso()

@@ -1,7 +1,7 @@
+import asyncio
 import json
 import os
 import sys
-import asyncio
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -62,10 +62,12 @@ class ChatbotService:
 
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        reply, _usage = self.engine.chat([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ])
+        reply, _usage = self.engine.chat(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt),
+            ]
+        )
         return str(reply)
 
     def chat_json(
@@ -106,7 +108,9 @@ class ChatbotService:
         payload = json.dumps(context, ensure_ascii=False)
         return self.chat(system, f"用户输入：{message}\n当前结构化上下文：{payload}")
 
-    def answer_travel_question(self, question: str, rag_result: dict | None = None) -> str:
+    def answer_travel_question(
+        self, question: str, rag_result: dict | None = None
+    ) -> str:
         if not self.available or self.engine is None:
             return self._fallback_travel_answer(question)
 
@@ -120,7 +124,9 @@ class ChatbotService:
         context = json.dumps(rag_result or {}, ensure_ascii=False)
         return self.chat(system, f"用户问题：{question}\n资料库检索结果：{context}")
 
-    async def stream_travel_question(self, question: str, rag_result: dict | None = None) -> AsyncIterator[str]:
+    async def stream_travel_question(
+        self, question: str, rag_result: dict | None = None
+    ) -> AsyncIterator[str]:
         answer = self.answer_travel_question(question, rag_result)
         for index in range(0, len(answer), 12):
             yield answer[index : index + 12]
@@ -145,7 +151,10 @@ class ChatbotService:
         intent = context.get("intent", {}).get("intent")
         missing = context.get("requirements", {}).get("missing_fields", [])
         if missing:
-            return context.get("requirements", {}).get("follow_up_question") or "还需要补充关键信息。"
+            return (
+                context.get("requirements", {}).get("follow_up_question")
+                or "还需要补充关键信息。"
+            )
         if intent == "travel_qa":
             return "这是旅游问答意图，应转交 RAGService 返回答案、来源文档、证据片段和页码。"
         if intent == "modify_trip":

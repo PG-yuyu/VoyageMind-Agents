@@ -19,4 +19,6 @@ class RequirementAdapter:
         message: str,
         existing_requirements: TravelRequest | None = None,
     ) -> RequirementExtractionResult:
-        return self.requirement_service.extract(session_id, message, existing_requirements)
+        return self.requirement_service.extract(
+            session_id, message, existing_requirements
+        )

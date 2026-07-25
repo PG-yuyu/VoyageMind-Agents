@@ -14,7 +14,9 @@ def new_id(prefix: str) -> str:
 
 
 IntentType = Literal["create_trip", "modify_trip", "travel_qa"]
-SessionStatus = Literal["active", "waiting_for_user", "planning", "completed", "failed", "closed"]
+SessionStatus = Literal[
+    "active", "waiting_for_user", "planning", "completed", "failed", "closed"
+]
 
 
 class ApiResponse(BaseModel):

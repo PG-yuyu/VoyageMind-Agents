@@ -142,7 +142,9 @@ class CoordinatorAgent:
 
         rag_result = self.rag_service.query(question=message, top_k=5)
         parts: list[str] = []
-        async for chunk in self.chatbot_service.stream_travel_question(message, rag_result):
+        async for chunk in self.chatbot_service.stream_travel_question(
+            message, rag_result
+        ):
             parts.append(chunk)
             yield chunk
         store.add_message(session_id, "assistant", "".join(parts))

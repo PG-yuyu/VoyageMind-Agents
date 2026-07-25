@@ -32,27 +32,33 @@ class StorageFactory:
         if storage_type == "sqlite":
             # 延迟导入：只用 sqlite 时才加载 sqlite_backend，避免无用依赖
             from storage.sqlite_backend import SQLiteBackend
+
             return SQLiteBackend()
         elif storage_type == "mysql":
             # MySQL 后端（Step 11 实现）
-            from storage.mysql_backend import MySQLBackend
             from core.config_manager import get_config
+            from storage.mysql_backend import MySQLBackend
+
             config = get_config()
             mysql_cfg = config.get("storage", "mysql", default={})
             return MySQLBackend(
                 host=mysql_cfg.get("host", "localhost"),
                 port=mysql_cfg.get("port", 3306),
                 user=mysql_cfg.get("user", "root"),
-                password=config.get_api_key("MYSQL_PASSWORD") or mysql_cfg.get("password", ""),
+                password=config.get_api_key("MYSQL_PASSWORD")
+                or mysql_cfg.get("password", ""),
                 database=mysql_cfg.get("database", "langchain_chat"),
             )
         elif storage_type == "file":
-            from storage.file_backend import FileBackend
             from core.config_manager import get_config
+            from storage.file_backend import FileBackend
+
             config = get_config()
             file_cfg = config.get("storage", "file", default={})
             return FileBackend(
                 base_path=file_cfg.get("path", "data/filestore"),
             )
         else:
-            raise ValueError(f"不支持的存储类型: {storage_type}（可选: sqlite/mysql/file）")
+            raise ValueError(
+                f"不支持的存储类型: {storage_type}（可选: sqlite/mysql/file）"
+            )

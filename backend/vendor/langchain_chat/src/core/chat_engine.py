@@ -8,14 +8,14 @@ Step 16 新增：上下文管理（滑动窗口 + Token 计数）、变量命名
 """
 
 import logging
+
 logger = logging.getLogger(__name__)
 import os
 from typing import AsyncIterator, Optional
 
+from core.config_manager import AppConfig
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-
-from core.config_manager import AppConfig
 
 
 class ChatEngine:
@@ -41,7 +41,9 @@ class ChatEngine:
 
         api_key = self.config.get_api_key(provider["api_key_env"])
         if not api_key:
-            raise ValueError(f"服务商 '{provider['name']}' 的 API Key 未配置（请检查 .env 的 {provider['api_key_env']}）")
+            raise ValueError(
+                f"服务商 '{provider['name']}' 的 API Key 未配置（请检查 .env 的 {provider['api_key_env']}）"
+            )
 
         return ChatOpenAI(
             model=model_value,
@@ -166,8 +168,12 @@ class ChatEngine:
 
         if len(result) < len(messages):
             dropped = len(messages) - len(result)
-            logger.info("上下文裁剪: 原始 %d 条，保留 %d 条，丢弃 %d 条",
-                        len(messages), len(result), dropped)
+            logger.info(
+                "上下文裁剪: 原始 %d 条，保留 %d 条，丢弃 %d 条",
+                len(messages),
+                len(result),
+                dropped,
+            )
 
         return result
 

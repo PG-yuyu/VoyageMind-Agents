@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-
 from models.schemas import Preset
 from storage.base import StorageBackend
 
@@ -63,11 +62,11 @@ class PresetManager:
         for item in data["presets"]:
             name = item.get("name", "").strip()
             if not name or name in existing_builtin:
-                continue    # 名字为空或已存在，跳过
+                continue  # 名字为空或已存在，跳过
 
             preset = Preset(
                 id=0,
-                user_id=None,                     # None 表示系统内置
+                user_id=None,  # None 表示系统内置
                 name=name,
                 description=item.get("description", ""),
                 system_prompt=item.get("system_prompt", ""),

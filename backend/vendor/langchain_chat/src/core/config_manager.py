@@ -129,11 +129,13 @@ class AppConfig:
         result = []
         for provider in self.providers:
             for model in provider.get("models", []):
-                result.append({
-                    "name": model.get("name", model.get("value", "")),
-                    "value": model.get("value", ""),
-                    "provider": provider.get("name", ""),
-                })
+                result.append(
+                    {
+                        "name": model.get("name", model.get("value", "")),
+                        "value": model.get("value", ""),
+                        "provider": provider.get("name", ""),
+                    }
+                )
         return result
 
     def find_provider_by_model(self, model_value: str) -> Optional[dict]:
