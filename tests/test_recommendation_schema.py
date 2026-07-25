@@ -181,10 +181,34 @@ def test_common_schema_compatibility_aliases() -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        {"session_id": "session_001", "city": "", "days": 3, "people": 2, "total_budget": 3000},
-        {"session_id": "session_001", "city": "北京", "days": 0, "people": 2, "total_budget": 3000},
-        {"session_id": "session_001", "city": "北京", "days": 3, "people": 0, "total_budget": 3000},
-        {"session_id": "session_001", "city": "北京", "days": 3, "people": 2, "total_budget": -1},
+        {
+            "session_id": "session_001",
+            "city": "",
+            "days": 3,
+            "people": 2,
+            "total_budget": 3000,
+        },
+        {
+            "session_id": "session_001",
+            "city": "北京",
+            "days": 0,
+            "people": 2,
+            "total_budget": 3000,
+        },
+        {
+            "session_id": "session_001",
+            "city": "北京",
+            "days": 3,
+            "people": 0,
+            "total_budget": 3000,
+        },
+        {
+            "session_id": "session_001",
+            "city": "北京",
+            "days": 3,
+            "people": 2,
+            "total_budget": -1,
+        },
     ],
 )
 def test_invalid_member1_travel_request_is_rejected_by_context(payload: dict) -> None:
@@ -223,10 +247,39 @@ def test_invalid_place_is_rejected() -> None:
     coordinate = Coordinate(longitude=116.397026, latitude=39.918058)
 
     invalid_places = [
-        {"place_id": "", "name": "故宫", "place_type": "attraction", "city": "北京", "area": "东城区", "coordinate": coordinate},
-        {"place_id": "attr_001", "name": "", "place_type": "attraction", "city": "北京", "area": "东城区", "coordinate": coordinate},
-        {"place_id": "shop_001", "name": "购物中心", "place_type": "shopping", "city": "北京", "area": "朝阳区", "coordinate": coordinate},
-        {"place_id": "attr_001", "name": "故宫", "place_type": "attraction", "city": "北京", "area": "东城区", "coordinate": coordinate, "price": -1},
+        {
+            "place_id": "",
+            "name": "故宫",
+            "place_type": "attraction",
+            "city": "北京",
+            "area": "东城区",
+            "coordinate": coordinate,
+        },
+        {
+            "place_id": "attr_001",
+            "name": "",
+            "place_type": "attraction",
+            "city": "北京",
+            "area": "东城区",
+            "coordinate": coordinate,
+        },
+        {
+            "place_id": "shop_001",
+            "name": "购物中心",
+            "place_type": "shopping",
+            "city": "北京",
+            "area": "朝阳区",
+            "coordinate": coordinate,
+        },
+        {
+            "place_id": "attr_001",
+            "name": "故宫",
+            "place_type": "attraction",
+            "city": "北京",
+            "area": "东城区",
+            "coordinate": coordinate,
+            "price": -1,
+        },
     ]
 
     for payload in invalid_places:
