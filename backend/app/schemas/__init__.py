@@ -14,7 +14,11 @@ from .recommendation import (
     TravelRequest,
     ValidationIssue,
 )
-from .recommendation_policy import RecommendationPolicy
+from .recommendation_policy import (
+    RecommendationPolicy,
+    ResourceFilterPolicy,
+    VALID_POLICY_PLACE_TYPES,
+)
 from .route import RouteInfo, RouteRequest, RouteResult
 
 __all__ = [
@@ -29,10 +33,14 @@ __all__ = [
     "RecommendationContext",
     "RecommendationPolicy",
     "RecommendationResult",
+    "ResourceFilterPolicy",
     "RouteInfo",
     "RouteRequest",
     "RouteResult",
     "SemanticPreference",
     "TravelRequest",
+    "VALID_POLICY_PLACE_TYPES",
     "ValidationIssue",
+    "ResourceFilterPolicy",
+    "VALID_POLICY_PLACE_TYPES",
 ]
