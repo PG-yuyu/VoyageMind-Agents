@@ -76,6 +76,30 @@ def build_context(city: str = "北京") -> RecommendationContext:
     )
 
 
+def build_context_without_area_constraint() -> RecommendationContext:
+    """构造没有明确区域硬约束的推荐上下文。"""
+
+    requirements = TravelRequest(
+        session_id="session_agent_no_area",
+        city="北京",
+        days=3,
+        people=4,
+        hotel_budget_per_night=260,
+        meal_budget_per_person=80,
+        interests=["历史文化"],
+        food_preferences=["本地风味"],
+    )
+    return RecommendationContext(
+        session_id="session_agent_no_area",
+        requirements=requirements,
+        original_text="我们四个人去北京三天，交通方便一点，想看历史文化，也想吃本地风味。",
+        semantic_preferences=[
+            SemanticPreference(text="交通方便一点", scope="overall"),
+            SemanticPreference(text="想看历史文化", scope="attraction"),
+        ],
+    )
+
+
 def policy_response(include_area: bool = True) -> dict:
     """构造 Step 5 模型策略响应。"""
 
@@ -107,6 +131,74 @@ def policy_response(include_area: bool = True) -> dict:
         "preference_notes": ["硬约束：景点尽量安排在东城区"],
         "budget_direction": "预算友好",
         "people_direction": ["学生旅行", "多人同行"],
+    }
+
+
+def soft_area_policy_response() -> dict:
+    """构造模型把软偏好误写成具体区域的策略。"""
+
+    return {
+        "focus": ["交通方便", "历史文化"],
+        "filters": [
+            {
+                "place_type": "attraction",
+                "tags": ["历史文化"],
+                "area": "海淀区",
+                "min_price": None,
+                "max_price": None,
+            },
+            {
+                "place_type": "hotel",
+                "tags": ["交通便利"],
+                "area": "西城区",
+                "min_price": None,
+                "max_price": 260,
+            },
+            {
+                "place_type": "restaurant",
+                "tags": ["本地风味"],
+                "area": "西城区",
+                "min_price": None,
+                "max_price": 80,
+            },
+        ],
+        "preference_notes": ["区域来自软偏好，不应作为候选查询硬过滤。"],
+        "budget_direction": "中等预算",
+        "people_direction": ["通用"],
+    }
+
+
+def soft_tag_policy_response() -> dict:
+    """构造模型返回的非本地标签策略。"""
+
+    return {
+        "focus": ["城市休闲观光", "烟火气体验"],
+        "filters": [
+            {
+                "place_type": "attraction",
+                "tags": ["热门景点", "适合步行"],
+                "area": None,
+                "min_price": None,
+                "max_price": None,
+            },
+            {
+                "place_type": "hotel",
+                "tags": ["高性价比", "交通便利"],
+                "area": None,
+                "min_price": None,
+                "max_price": 260,
+            },
+            {
+                "place_type": "restaurant",
+                "tags": ["当地特色", "口碑推荐"],
+                "area": None,
+                "min_price": None,
+                "max_price": 80,
+            },
+        ],
+        "preference_notes": ["模型生成的 tags 是软偏好，不应作为候选查询硬过滤。"],
+        "budget_direction": "中等预算，注重性价比",
+        "people_direction": ["通用"],
     }
 
 
@@ -185,6 +277,39 @@ def test_recommendation_agent_rejects_candidate_outside_pool() -> None:
 
     with pytest.raises(ModelDecisionError):
         agent.recommend(build_context())
+
+
+def test_recommendation_agent_keeps_candidates_when_model_tags_do_not_match_seed() -> None:
+    """模型软标签与样例数据标签不一致时，仍应保留候选池给 Step 6 判断。"""
+
+    comparison_model = FakeModelService(comparison_response())
+    agent = build_agent(
+        policy_model=FakeModelService(soft_tag_policy_response()),
+        comparison_model=comparison_model,
+    )
+
+    result = agent.recommend(build_context())
+
+    assert result.attractions
+    assert result.hotels
+    assert result.restaurants
+    assert "故宫博物院" in comparison_model.calls[0][1]
+
+
+def test_recommendation_agent_ignores_soft_area_filter_without_hard_constraint() -> None:
+    """模型把软偏好转成 area 时，没有明确区域硬约束就不能硬过滤候选池。"""
+
+    comparison_model = FakeModelService(comparison_response(attraction_id="place_001"))
+    agent = build_agent(
+        policy_model=FakeModelService(soft_area_policy_response()),
+        comparison_model=comparison_model,
+    )
+
+    result = agent.recommend(build_context_without_area_constraint())
+
+    assert [place.place_id for place in result.attractions] == ["place_001"]
+    assert "故宫博物院" in comparison_model.calls[0][1]
+    assert "颐和园" in comparison_model.calls[0][1]
 
 
 def test_recommendation_agent_rejects_hard_constraint_violation() -> None:

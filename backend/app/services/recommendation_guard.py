@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from backend.app.schemas import (
+    Coordinate,
     HardConstraint,
     Place,
     RecommendationContext,
@@ -42,6 +43,7 @@ class RecommendationGuard:
         issues: list[ValidationIssue] = []
         if place.place_id not in candidate_place_ids:
             issues.append(self._issue("place_id", f"模型选择了候选池外地点：{place.place_id}"))
+        issues.extend(self._validate_coordinate(place))
         if place.city != context.requirements.city:
             issues.append(self._issue("city", f"{place.name} 不属于目标城市"))
         if self._is_avoided_place(context, place):
@@ -62,6 +64,18 @@ class RecommendationGuard:
         for constraint in context.explicit_hard_constraints:
             issues.extend(self._validate_explicit_constraint(place, constraint))
         return issues
+
+    def _validate_coordinate(self, place: Place) -> list[ValidationIssue]:
+        """校验推荐地点必须保留合法坐标事实。"""
+
+        coordinate = getattr(place, "coordinate", None)
+        if not isinstance(coordinate, Coordinate):
+            return [self._issue("coordinate", f"{place.name} 缺少合法坐标")]
+        if not -180 <= coordinate.longitude <= 180:
+            return [self._issue("coordinate", f"{place.name} 经度不合法")]
+        if not -90 <= coordinate.latitude <= 90:
+            return [self._issue("coordinate", f"{place.name} 纬度不合法")]
+        return []
 
     def _validate_explicit_constraint(
         self,

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from backend.app.schemas import (
     Place,
+    RecommendationContext,
     RecommendationPolicy,
     ResourceFilterPolicy,
 )
@@ -48,6 +49,7 @@ class CandidateContextBuilder:
         policy: RecommendationPolicy,
         city: str | None,
         per_type_limit: int | dict[str, int] = 2,
+        context: RecommendationContext | None = None,
     ) -> CandidateResourceContext:
         """按策略查询每类候选资源，并返回统一上下文。"""
 
@@ -61,18 +63,21 @@ class CandidateContextBuilder:
                 city,
                 "attraction",
                 self._limit_for_type(per_type_limit, "attraction"),
+                context,
             ),
             hotels=self._search_by_type(
                 policy,
                 city,
                 "hotel",
                 self._limit_for_type(per_type_limit, "hotel"),
+                context,
             ),
             restaurants=self._search_by_type(
                 policy,
                 city,
                 "restaurant",
                 self._limit_for_type(per_type_limit, "restaurant"),
+                context,
             ),
         )
 
@@ -82,11 +87,12 @@ class CandidateContextBuilder:
         city: str | None,
         place_type: str,
         limit: int,
+        context: RecommendationContext | None,
     ) -> list[Place]:
         """查询单类候选资源，只执行模型策略和硬性事实过滤。"""
 
         filter_policy = self._find_filter(policy, place_type)
-        query = self._build_query(city, place_type, filter_policy, limit)
+        query = self._build_query(city, place_type, filter_policy, limit, context)
         return self.search_service.search(query)
 
     def _build_query(
@@ -95,6 +101,7 @@ class CandidateContextBuilder:
         place_type: str,
         filter_policy: ResourceFilterPolicy | None,
         limit: int,
+        context: RecommendationContext | None,
     ) -> PlaceSearchQuery:
         """把单类过滤策略转换成资源查询服务请求。"""
 
@@ -104,12 +111,53 @@ class CandidateContextBuilder:
         return PlaceSearchQuery(
             city=city,
             place_type=place_type,
-            area=filter_policy.area,
-            tags=filter_policy.tags,
+            area=self._area_for_query(filter_policy, place_type, context),
             min_price=filter_policy.min_price,
             max_price=filter_policy.max_price,
             limit=limit,
         )
+
+    def _area_for_query(
+        self,
+        filter_policy: ResourceFilterPolicy,
+        place_type: str,
+        context: RecommendationContext | None,
+    ) -> str | None:
+        """只有明确区域硬约束支持时，才把 area 作为查询硬过滤。"""
+
+        if filter_policy.area is None or context is None:
+            return None
+        if self._area_supported_by_explicit_constraint(
+            context,
+            place_type,
+            filter_policy.area,
+        ):
+            return filter_policy.area
+        return None
+
+    @staticmethod
+    def _area_supported_by_explicit_constraint(
+        context: RecommendationContext,
+        place_type: str,
+        area: str,
+    ) -> bool:
+        """判断区域过滤是否来自成员一传入的明确硬约束。"""
+
+        scope_aliases = {place_type, "overall", "all", "全部", "整体"}
+        if place_type == "attraction":
+            scope_aliases.add("景点")
+        if place_type == "hotel":
+            scope_aliases.update({"hotel", "酒店", "住宿"})
+        if place_type == "restaurant":
+            scope_aliases.update({"restaurant", "餐厅", "餐饮", "food", "meal"})
+
+        for constraint in context.explicit_hard_constraints:
+            field = constraint.field.lower()
+            scope = constraint.scope.lower()
+            if field in {"area", "district", "区域", "商圈"}:
+                if scope in scope_aliases and str(constraint.value) == area:
+                    return True
+        return False
 
     @staticmethod
     def _find_filter(
