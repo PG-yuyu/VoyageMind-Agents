@@ -2,264 +2,248 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+import json
+from dataclasses import asdict
+from typing import Any
 
+from backend.app.prompts import RECOMMENDATION_POLICY_PROMPT
 from backend.app.schemas import (
+    HardConstraint,
     RecommendationContext,
     RecommendationPolicy,
     ResourceFilterPolicy,
 )
-
-
-ATTRACTION_TAG_KEYWORDS = [
-    "历史文化",
-    "博物馆",
-    "园林",
-    "胡同",
-    "城市漫步",
-    "本地生活",
-    "经典景点",
-]
-HOTEL_TAG_KEYWORDS = ["交通方便", "经济型", "中等预算", "靠近景点", "适合学生"]
-RESTAURANT_TAG_KEYWORDS = ["本地风味", "小吃", "老字号", "家常菜", "经济型"]
-BUDGET_FRIENDLY_WORDS = ["预算不要太高", "不要太高", "便宜", "经济", "省钱", "学生"]
+from backend.app.services import LLMJsonService, ModelDecisionError
 
 
 class RecommendationPolicyAgent:
-    """把推荐上下文转换为可执行的资源推荐策略。"""
+    """使用大模型把推荐上下文转换为资源推荐策略。"""
+
+    def __init__(self, model_service: LLMJsonService | None = None) -> None:
+        """注入大模型 JSON 服务；默认使用成员一 ChatbotService。"""
+
+        self.model_service = model_service or LLMJsonService()
 
     def generate_policy(self, context: RecommendationContext) -> RecommendationPolicy:
-        """生成推荐策略，不查询候选资源，也不返回最终推荐结果。"""
+        """生成推荐策略；隐含偏好必须由大模型判断。"""
 
         if not isinstance(context, RecommendationContext):
             raise TypeError("策略 Agent 只能处理 RecommendationContext")
 
-        return RecommendationPolicy(
-            focus=self._build_focus(context),
-            filters=self._build_filters(context),
-            preference_notes=self._build_preference_notes(context),
-            budget_direction=self._infer_budget_direction(context),
-            people_direction=self._infer_people_direction(context),
+        payload = self._context_to_payload(context)
+        model_output = self.model_service.request_json(
+            RECOMMENDATION_POLICY_PROMPT,
+            json.dumps(payload, ensure_ascii=False, indent=2),
         )
+        policy = self._policy_from_model_output(model_output)
+        self._validate_price_limits_are_explicit(context, policy.filters)
+        return policy
 
-    def _build_focus(self, context: RecommendationContext) -> list[str]:
-        """根据城市、天数、兴趣和语义偏好生成推荐重点。"""
+    def _context_to_payload(self, context: RecommendationContext) -> dict[str, Any]:
+        """转换为可交给大模型理解的上下文 JSON。"""
 
-        requirements = context.requirements
-        focus = [
-            f"{requirements.city}{requirements.days}日游资源策略",
-            "覆盖景点、酒店、餐厅三类候选资源",
-        ]
-        for interest in requirements.interests:
-            focus.append(f"优先围绕{interest}资源")
-        for place_name in requirements.must_visit:
-            focus.append(f"保留必去地点线索：{place_name}")
-        for preference in context.semantic_preferences:
-            focus.append(f"响应用户偏好：{preference.text}")
-        if "毕业" in context.original_text:
-            focus.append("兼顾毕业旅行的纪念感和同行体验")
-        if "学生" in context.original_text:
-            focus.append("优先考虑学生群体的预算和便利性")
-        return self._unique(focus)
-
-    def _build_filters(self, context: RecommendationContext) -> list[ResourceFilterPolicy]:
-        """为景点、酒店、餐厅分别生成过滤方向。"""
-
-        requirements = context.requirements
-        attraction_tags = self._unique(
-            [
-                *requirements.interests,
-                *self._keywords_from_text(context.original_text, ATTRACTION_TAG_KEYWORDS),
-                *self._scoped_preference_keywords(
-                    context,
-                    {"attraction", "景点", "overall", "all"},
-                    ATTRACTION_TAG_KEYWORDS,
-                ),
-            ]
-        )
-        hotel_tags = self._unique(
-            [
-                *self._keywords_from_text(context.original_text, HOTEL_TAG_KEYWORDS),
-                *self._scoped_preference_keywords(
-                    context,
-                    {"hotel", "酒店", "overall", "all"},
-                    HOTEL_TAG_KEYWORDS,
-                ),
-            ]
-        )
-        restaurant_tags = self._unique(
-            [
-                *requirements.food_preferences,
-                *self._keywords_from_text(context.original_text, RESTAURANT_TAG_KEYWORDS),
-                *self._scoped_preference_keywords(
-                    context,
-                    {"restaurant", "餐厅", "food", "餐饮", "overall", "all"},
-                    RESTAURANT_TAG_KEYWORDS,
-                ),
-            ]
-        )
-
-        if self._is_budget_friendly(context):
-            hotel_tags = self._unique([*hotel_tags, "经济型", "交通方便"])
-            restaurant_tags = self._unique([*restaurant_tags, "经济型"])
-
-        return [
-            ResourceFilterPolicy(
-                place_type="attraction",
-                tags=attraction_tags,
-                area=self._infer_area(context, "attraction"),
+        return {
+            "session_id": context.session_id,
+            "requirements": context.requirements.model_dump(),
+            "original_text": context.original_text,
+            "conversation_context": list(context.conversation_context),
+            "explicit_hard_constraints": [
+                asdict(constraint)
+                for constraint in context.explicit_hard_constraints
+            ],
+            "semantic_preferences": [
+                asdict(preference) for preference in context.semantic_preferences
+            ],
+            "assumptions": list(context.assumptions),
+            "unresolved_fields": list(context.unresolved_fields),
+            "instruction": (
+                "隐含偏好必须由大模型理解；本地程序只校验 JSON、枚举、"
+                "价格上下限是否来自明确硬约束。"
             ),
-            ResourceFilterPolicy(
-                place_type="hotel",
-                tags=hotel_tags,
-                area=self._infer_area(context, "hotel"),
-                max_price=self._infer_hotel_max_price(context),
-            ),
-            ResourceFilterPolicy(
-                place_type="restaurant",
-                tags=restaurant_tags,
-                area=self._infer_area(context, "restaurant"),
-                max_price=context.requirements.meal_budget_per_person,
-            ),
-        ]
-
-    def _build_preference_notes(self, context: RecommendationContext) -> list[str]:
-        """整理后续推荐流程需要保留的用户偏好说明。"""
-
-        requirements = context.requirements
-        notes = [
-            f"目标城市：{requirements.city}",
-            f"旅行天数：{requirements.days}天",
-            f"出行人数：{requirements.people}人",
-        ]
-        if requirements.total_budget is not None:
-            notes.append(f"总预算约束：{requirements.total_budget}元")
-        if requirements.food_preferences:
-            notes.append(f"餐饮偏好：{'、'.join(requirements.food_preferences)}")
-        if requirements.food_avoidances:
-            notes.append(f"餐饮禁忌：{'、'.join(requirements.food_avoidances)}")
-        if requirements.avoid_places:
-            notes.append(f"需要避开：{'、'.join(requirements.avoid_places)}")
-        for constraint in context.explicit_hard_constraints:
-            notes.append(f"硬约束：{constraint.source_text}")
-        for preference in context.semantic_preferences:
-            notes.append(f"{preference.scope}偏好：{preference.text}")
-        if self._is_budget_friendly(context):
-            notes.append("预算控制优先，避免过高消费资源")
-        if "毕业" in context.original_text:
-            notes.append("毕业旅行需要兼顾纪念感、轻松度和同行体验")
-        return self._unique(notes)
-
-    def _infer_budget_direction(self, context: RecommendationContext) -> str:
-        """根据预算字段和原文判断预算倾向。"""
-
-        requirements = context.requirements
-        if self._is_budget_friendly(context):
-            return "预算友好"
-        if requirements.total_budget is None:
-            return "均衡预算"
-
-        people = max(requirements.people, 1)
-        days = max(requirements.days or 1, 1)
-        daily_budget = requirements.total_budget / people / days
-        if daily_budget <= 250:
-            return "预算友好"
-        if daily_budget <= 800:
-            return "均衡预算"
-        return "舒适优先"
-
-    def _infer_people_direction(self, context: RecommendationContext) -> list[str]:
-        """根据人数和原文判断适合人群方向。"""
-
-        requirements = context.requirements
-        directions: list[str] = []
-        if requirements.people == 1:
-            directions.append("单人出行")
-        elif requirements.people >= 4:
-            directions.append("多人同行")
-        else:
-            directions.append("双人或小团体")
-
-        text = context.original_text
-        keyword_map = {
-            "学生": "学生",
-            "毕业": "毕业旅行",
-            "家庭": "家庭游客",
-            "亲子": "亲子游客",
-            "朋友": "朋友出游",
-            "情侣": "情侣出游",
         }
-        for keyword, direction in keyword_map.items():
-            if keyword in text:
-                directions.append(direction)
-        return self._unique(directions)
 
-    def _infer_hotel_max_price(self, context: RecommendationContext) -> float | None:
-        """只在用户明确给出酒店每晚预算时生成酒店价格上限。"""
+    def _policy_from_model_output(
+        self, model_output: dict[str, Any]
+    ) -> RecommendationPolicy:
+        """把大模型 JSON 转换为 RecommendationPolicy。"""
 
-        requirements = context.requirements
-        if requirements.hotel_budget_per_night is not None:
-            return float(requirements.hotel_budget_per_night)
-        return None
+        filters_data = model_output.get("filters")
+        if not isinstance(filters_data, list):
+            raise ModelDecisionError("大模型未返回 filters，请重新调用模型重试")
 
-    def _infer_area(self, context: RecommendationContext, place_type: str) -> str | None:
-        """从硬约束中提取区域过滤条件。"""
-
-        for constraint in context.explicit_hard_constraints:
-            field = constraint.field.lower()
-            scope = constraint.scope.lower()
-            if field in {"area", "district", "区域", "商圈"} and scope in {
-                place_type,
-                "overall",
-                "all",
-            }:
-                return str(constraint.value)
-        return None
-
-    def _is_budget_friendly(self, context: RecommendationContext) -> bool:
-        """判断用户是否表达了预算友好倾向。"""
-
-        text_parts = [
-            context.original_text,
-            *context.conversation_context,
-            *(preference.text for preference in context.semantic_preferences),
-            *(constraint.source_text for constraint in context.explicit_hard_constraints),
+        filters = [
+            ResourceFilterPolicy(
+                place_type=self._required_str(item, "place_type"),
+                tags=self._str_list(item.get("tags"), "tags"),
+                area=self._nullable_str(item.get("area"), "area"),
+                min_price=self._nullable_float(item.get("min_price"), "min_price"),
+                max_price=self._nullable_float(item.get("max_price"), "max_price"),
+            )
+            for item in filters_data
+            if isinstance(item, dict)
         ]
-        text = " ".join(text_parts)
-        return any(word in text for word in BUDGET_FRIENDLY_WORDS)
+        if len(filters) != len(filters_data):
+            raise ModelDecisionError("大模型 filters 中存在非法对象，请重新调用模型重试")
 
-    def _scoped_preference_keywords(
+        return RecommendationPolicy(
+            focus=self._str_list(model_output.get("focus"), "focus"),
+            filters=filters,
+            preference_notes=self._str_list(
+                model_output.get("preference_notes"), "preference_notes"
+            ),
+            budget_direction=self._required_str(
+                model_output, "budget_direction"
+            ),
+            people_direction=self._str_list(
+                model_output.get("people_direction"), "people_direction"
+            ),
+        )
+
+    def _validate_price_limits_are_explicit(
         self,
         context: RecommendationContext,
-        scopes: set[str],
-        keywords: list[str],
-    ) -> list[str]:
-        """提取指定作用范围内的偏好关键词。"""
+        filters: list[ResourceFilterPolicy],
+    ) -> None:
+        """禁止大模型把软偏好擅自转换为价格硬过滤。"""
 
+        for filter_policy in filters:
+            self._validate_one_price_limit(
+                context=context,
+                filter_policy=filter_policy,
+                field_name="min_price",
+                value=filter_policy.min_price,
+            )
+            self._validate_one_price_limit(
+                context=context,
+                filter_policy=filter_policy,
+                field_name="max_price",
+                value=filter_policy.max_price,
+            )
+
+    def _validate_one_price_limit(
+        self,
+        context: RecommendationContext,
+        filter_policy: ResourceFilterPolicy,
+        field_name: str,
+        value: float | None,
+    ) -> None:
+        """校验单个价格过滤值是否来自明确硬约束。"""
+
+        if value is None:
+            return
+
+        allowed_values = self._explicit_price_values(
+            context=context,
+            place_type=filter_policy.place_type,
+            field_name=field_name,
+        )
+        if value not in allowed_values:
+            raise ModelDecisionError(
+                "大模型输出了未由明确硬约束支持的价格过滤条件，请重新生成策略"
+            )
+
+    def _explicit_price_values(
+        self,
+        context: RecommendationContext,
+        place_type: str,
+        field_name: str,
+    ) -> set[float]:
+        """收集允许用于策略过滤的明确价格数值。"""
+
+        values: set[float] = set()
+        if field_name == "max_price":
+            if place_type == "hotel" and context.requirements.hotel_budget_per_night:
+                values.add(float(context.requirements.hotel_budget_per_night))
+            if (
+                place_type == "restaurant"
+                and context.requirements.meal_budget_per_person
+            ):
+                values.add(float(context.requirements.meal_budget_per_person))
+
+        for constraint in context.explicit_hard_constraints:
+            if self._constraint_matches_price_scope(constraint, place_type):
+                try:
+                    values.add(float(constraint.value))
+                except (TypeError, ValueError):
+                    continue
+        return values
+
+    @staticmethod
+    def _constraint_matches_price_scope(
+        constraint: HardConstraint,
+        place_type: str,
+    ) -> bool:
+        """判断硬约束是否是指定资源类型的价格条件。"""
+
+        field = constraint.field.lower()
+        scope = constraint.scope.lower()
+        price_keywords = {
+            "price",
+            "budget",
+            "ticket",
+            "cost",
+            "费用",
+            "价格",
+            "预算",
+            "门票",
+            "人均",
+        }
+        scope_aliases = {
+            place_type,
+            "overall",
+            "all",
+            "全部",
+            "整体",
+        }
+        if place_type == "restaurant":
+            scope_aliases.update({"food", "meal", "餐饮", "餐厅"})
+        if place_type == "hotel":
+            scope_aliases.update({"住宿", "酒店"})
+        if place_type == "attraction":
+            scope_aliases.update({"景点", "门票"})
+        return any(keyword in field for keyword in price_keywords) and scope in scope_aliases
+
+    @staticmethod
+    def _str_list(value: Any, field_name: str) -> list[str]:
+        """读取字符串列表字段。"""
+
+        if not isinstance(value, list):
+            raise ModelDecisionError(f"大模型字段 {field_name} 必须是字符串列表")
         results: list[str] = []
-        for preference in context.semantic_preferences:
-            if preference.scope in scopes:
-                results.extend(self._keywords_from_text(preference.text, keywords))
+        for item in value:
+            if not isinstance(item, str) or not item.strip():
+                raise ModelDecisionError(f"大模型字段 {field_name} 包含非法字符串")
+            results.append(item.strip())
         return results
 
     @staticmethod
-    def _keywords_from_text(text: str, keywords: list[str]) -> list[str]:
-        """从文本中提取已知标签关键词。"""
+    def _required_str(data: dict[str, Any], field_name: str) -> str:
+        """读取必填字符串字段。"""
 
-        return [keyword for keyword in keywords if keyword in text]
+        value = data.get(field_name)
+        if not isinstance(value, str) or not value.strip():
+            raise ModelDecisionError(f"大模型字段 {field_name} 必须是非空字符串")
+        return value.strip()
 
     @staticmethod
-    def _unique(items: Iterable[str]) -> list[str]:
-        """按出现顺序去重并丢弃空字符串。"""
+    def _nullable_str(value: Any, field_name: str) -> str | None:
+        """读取可空字符串字段。"""
 
-        results: list[str] = []
-        seen: set[str] = set()
-        for item in items:
-            normalized = item.strip()
-            if normalized and normalized not in seen:
-                results.append(normalized)
-                seen.add(normalized)
-        return results
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            raise ModelDecisionError(f"大模型字段 {field_name} 必须是字符串或 null")
+        return value.strip()
+
+    @staticmethod
+    def _nullable_float(value: Any, field_name: str) -> float | None:
+        """读取可空数字字段。"""
+
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ModelDecisionError(f"大模型字段 {field_name} 必须是数字或 null")
+        return float(value)
 
 
 __all__ = ["RecommendationPolicyAgent"]

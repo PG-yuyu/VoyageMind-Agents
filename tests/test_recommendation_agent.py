@@ -4,6 +4,7 @@ import pytest
 
 from backend.app.agents import (
     RecommendationAgent,
+    RecommendationPolicyAgent,
     RecommendationState,
     ResourceRecommendationAgent,
 )
@@ -15,14 +16,33 @@ from backend.app.schemas import (
     SemanticPreference,
     TravelRequest,
 )
+from backend.app.services import ModelDecisionError
 from backend.app.workflows import (
     run_recommendation_workflow,
     run_recommendation_workflow_with_state,
 )
 
 
+class FakeModelService:
+    """测试用大模型服务。"""
+
+    def __init__(self, response: dict | Exception) -> None:
+        """保存固定响应。"""
+
+        self.response = response
+        self.calls: list[tuple[str, str]] = []
+
+    def request_json(self, system_prompt: str, user_prompt: str) -> dict:
+        """记录调用并返回预设 JSON。"""
+
+        self.calls.append((system_prompt, user_prompt))
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
+
+
 def build_context(city: str = "北京") -> RecommendationContext:
-    """构造能覆盖第六步主流程的推荐上下文。"""
+    """构造覆盖第六步主流程的推荐上下文。"""
 
     requirements = TravelRequest(
         session_id="session_agent_001",
@@ -56,58 +76,144 @@ def build_context(city: str = "北京") -> RecommendationContext:
     )
 
 
-def build_broad_context() -> RecommendationContext:
-    """构造没有强过滤条件的推荐上下文，用于验证默认数量规则。"""
+def policy_response(include_area: bool = True) -> dict:
+    """构造 Step 5 模型策略响应。"""
 
-    requirements = TravelRequest(
-        session_id="session_agent_broad",
-        city="北京",
-        days=3,
-        people=2,
+    return {
+        "focus": ["历史文化", "毕业旅行", "本地风味"],
+        "filters": [
+            {
+                "place_type": "attraction",
+                "tags": ["历史文化"],
+                "area": "东城区" if include_area else None,
+                "min_price": None,
+                "max_price": None,
+            },
+            {
+                "place_type": "hotel",
+                "tags": ["经济型"],
+                "area": None,
+                "min_price": None,
+                "max_price": 260,
+            },
+            {
+                "place_type": "restaurant",
+                "tags": ["本地风味"],
+                "area": None,
+                "min_price": None,
+                "max_price": 80,
+            },
+        ],
+        "preference_notes": ["硬约束：景点尽量安排在东城区"],
+        "budget_direction": "预算友好",
+        "people_direction": ["学生旅行", "多人同行"],
+    }
+
+
+def comparison_response(
+    attraction_id: str = "place_001",
+    hotel_id: str = "hotel_002",
+    restaurant_id: str = "restaurant_001",
+) -> dict:
+    """构造 Step 6 模型候选选择响应。"""
+
+    return {
+        "policy_summary": "模型根据历史文化、预算和本地风味偏好完成资源选择。",
+        "selected_place_ids": {
+            "attractions": [attraction_id],
+            "hotels": [hotel_id],
+            "restaurants": [restaurant_id],
+        },
+        "validation_issues": [],
+        "need_follow_up": False,
+        "follow_up_question": None,
+        "agent_trace": ["大模型完成候选比较"],
+    }
+
+
+def build_agent(
+    policy_model: FakeModelService | None = None,
+    comparison_model: FakeModelService | None = None,
+) -> RecommendationAgent:
+    """构造注入假模型的推荐 Agent。"""
+
+    policy_agent = RecommendationPolicyAgent(
+        model_service=policy_model or FakeModelService(policy_response())
     )
-    return RecommendationContext(
-        session_id="session_agent_broad",
-        requirements=requirements,
-        original_text="两个人去北京三天，想看看适合第一次到访的资源。",
+    return RecommendationAgent(
+        policy_agent=policy_agent,
+        model_service=comparison_model or FakeModelService(comparison_response()),
     )
 
 
-def test_recommendation_agent_generates_resource_result() -> None:
-    """第六步可以把上下文转换为景点、酒店、餐厅推荐结果。"""
+def test_recommendation_agent_uses_model_selected_ids() -> None:
+    """Step 6 根据大模型返回的候选 id 组装推荐结果。"""
 
-    result = RecommendationAgent().recommend(build_context())
+    comparison_model = FakeModelService(comparison_response())
+    result = build_agent(comparison_model=comparison_model).recommend(build_context())
 
     assert isinstance(result, RecommendationResult)
-    assert result.need_follow_up is False
-    assert [place.name for place in result.attractions] == ["故宫博物院"]
-    assert [place.name for place in result.hotels] == ["西城青年旅舍"]
-    assert result.restaurants
-    assert all(place.price is not None and place.price <= 80 for place in result.restaurants)
+    assert [place.place_id for place in result.attractions] == ["place_001"]
+    assert [place.place_id for place in result.hotels] == ["hotel_002"]
+    assert [place.place_id for place in result.restaurants] == ["restaurant_001"]
+    assert comparison_model.calls
+    assert "selected_place_ids" in comparison_model.calls[0][0]
+    assert "故宫博物院" in comparison_model.calls[0][1]
 
 
 def test_resource_recommendation_agent_alias_is_available() -> None:
     """建议命名 ResourceRecommendationAgent 可以作为主 Agent 别名使用。"""
 
-    result = ResourceRecommendationAgent().recommend(build_context())
+    policy_agent = RecommendationPolicyAgent(
+        model_service=FakeModelService(policy_response())
+    )
+    result = ResourceRecommendationAgent(
+        policy_agent=policy_agent,
+        model_service=FakeModelService(comparison_response()),
+    ).recommend(build_context())
 
     assert isinstance(result, RecommendationResult)
     assert result.attractions
 
 
-def test_recommendation_agent_uses_default_type_limits() -> None:
-    """默认选择景点 3 个、酒店 1 个、餐厅 2 个。"""
+def test_recommendation_agent_rejects_candidate_outside_pool() -> None:
+    """模型选择候选池外地点时，不能本地兜底替换。"""
 
-    result = RecommendationAgent().recommend(build_broad_context())
+    agent = build_agent(
+        comparison_model=FakeModelService(comparison_response(attraction_id="missing"))
+    )
 
-    assert len(result.attractions) == 3
-    assert len(result.hotels) == 1
-    assert len(result.restaurants) == 2
+    with pytest.raises(ModelDecisionError):
+        agent.recommend(build_context())
+
+
+def test_recommendation_agent_rejects_hard_constraint_violation() -> None:
+    """模型选择违反明确区域硬约束的地点时，直接要求重试。"""
+
+    agent = build_agent(
+        policy_model=FakeModelService(policy_response(include_area=False)),
+        comparison_model=FakeModelService(comparison_response(attraction_id="place_002")),
+    )
+
+    with pytest.raises(ModelDecisionError):
+        agent.recommend(build_context())
+
+
+def test_recommendation_agent_does_not_fallback_when_model_fails() -> None:
+    """候选比较模型失败时不能回到本地规则选择。"""
+
+    agent = build_agent(
+        comparison_model=FakeModelService(ModelDecisionError("模型不可用，请重试"))
+    )
+
+    with pytest.raises(ModelDecisionError):
+        agent.recommend(build_context())
 
 
 def test_recommendation_agent_keeps_step_six_boundary() -> None:
     """第六步只生成资源推荐，不生成路线、地图和 RAG 证据。"""
 
-    result = RecommendationAgent().recommend(build_context())
+    result = build_agent().recommend(build_context())
 
     assert result.routes == []
     assert result.evidence == []
@@ -117,7 +223,7 @@ def test_recommendation_agent_keeps_step_six_boundary() -> None:
 def test_recommendation_workflow_returns_result() -> None:
     """工作流入口可以返回推荐结果。"""
 
-    result = run_recommendation_workflow(build_context())
+    result = run_recommendation_workflow(build_context(), agent=build_agent())
 
     assert isinstance(result, RecommendationResult)
     assert result.attractions
@@ -127,7 +233,7 @@ def test_recommendation_workflow_returns_result() -> None:
 def test_recommendation_workflow_state_records_trace() -> None:
     """工作流状态会记录策略、候选资源和执行轨迹。"""
 
-    state = run_recommendation_workflow_with_state(build_context())
+    state = run_recommendation_workflow_with_state(build_context(), agent=build_agent())
 
     assert isinstance(state, RecommendationState)
     assert state.policy is not None
@@ -145,53 +251,16 @@ def test_recommendation_workflow_state_records_trace() -> None:
     ]
 
 
-def test_recommendation_agent_relaxes_soft_tags_when_needed() -> None:
-    """标签没有命中时可以放宽软标签，仍然保留城市和类型条件。"""
-
-    requirements = TravelRequest(
-        session_id="session_agent_002",
-        city="北京",
-        days=2,
-        people=2,
-        interests=["艺术展览"],
-    )
-    context = RecommendationContext(
-        session_id="session_agent_002",
-        requirements=requirements,
-        original_text="两个人去北京两天，想看艺术展览。",
-    )
-
-    result = RecommendationAgent().recommend(context)
-
-    assert result.attractions
-    assert all(place.city == "北京" for place in result.attractions)
-    assert all(place.place_type == "attraction" for place in result.attractions)
-
-
-def test_recommendation_agent_reports_empty_candidates() -> None:
-    """样例数据没有匹配城市时返回追问信息和校验问题。"""
-
-    result = RecommendationAgent().recommend(build_context(city="上海"))
-
-    assert result.need_follow_up is True
-    assert result.follow_up_question
-    assert {issue.field for issue in result.validation_issues} == {
-        "attractions",
-        "hotels",
-        "restaurants",
-    }
-
-
 def test_recommendation_agent_rejects_invalid_context() -> None:
     """主 Agent 只接收 RecommendationContext。"""
 
     with pytest.raises(TypeError):
-        RecommendationAgent().recommend("北京三日游")
+        build_agent().recommend("北京三日游")
 
 
-def test_candidate_comparison_prompt_declares_boundary() -> None:
-    """候选比较 Prompt 明确第六步边界。"""
+def test_candidate_comparison_prompt_declares_llm_boundary() -> None:
+    """候选比较 Prompt 明确大模型和本地规则边界。"""
 
-    assert "不要做每日行程规划" in CANDIDATE_COMPARISON_PROMPT
+    assert "软偏好判断必须由你完成" in CANDIDATE_COMPARISON_PROMPT
+    assert "只能从 candidates 中选择 place_id" in CANDIDATE_COMPARISON_PROMPT
     assert "不要生成路线、距离、地图标记或交通方案" in CANDIDATE_COMPARISON_PROMPT
-    assert "不要调用 RAG" in CANDIDATE_COMPARISON_PROMPT

@@ -28,22 +28,10 @@ def run_recommendation_workflow_with_state(
         raise TypeError("推荐工作流只能处理 RecommendationContext")
 
     recommendation_agent = agent or RecommendationAgent()
-    state = RecommendationState(context=context)
-    state.add_trace("接收需求")
-
-    state.policy = recommendation_agent.policy_agent.generate_policy(context)
-    state.add_trace("生成推荐策略")
     result = recommendation_agent.recommend(context)
-    state.record_candidates(
-        attractions=result.attractions,
-        hotels=result.hotels,
-        restaurants=result.restaurants,
-    )
-    state.add_trace("查询景点候选")
-    state.add_trace("查询酒店候选")
-    state.add_trace("查询餐厅候选")
-    state.record_result(result)
-    state.add_trace("生成推荐结果")
+    state = recommendation_agent.last_state
+    if state is None:
+        raise RuntimeError("推荐 Agent 未记录执行状态")
 
     merged_trace = [*state.trace, *result.agent_trace]
     state.result = RecommendationResult(

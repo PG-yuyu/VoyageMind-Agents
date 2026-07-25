@@ -34,7 +34,7 @@ class CandidateResourceContext:
 
 
 class CandidateContextBuilder:
-    """把推荐策略转换为可供结果 Agent 使用的候选资源上下文。"""
+    """把大模型策略转换为候选资源查询，不做推荐排序决策。"""
 
     RESOURCE_TYPES = ("attraction", "hotel", "restaurant")
 
@@ -83,38 +83,23 @@ class CandidateContextBuilder:
         place_type: str,
         limit: int,
     ) -> list[Place]:
-        """查询单类资源，先使用完整策略，必要时放宽标签条件。"""
+        """查询单类候选资源，只执行模型策略和硬性事实过滤。"""
 
         filter_policy = self._find_filter(policy, place_type)
-        strict_query = self._build_query(city, place_type, filter_policy)
-        results = self.search_service.search(strict_query)
-
-        if not results and filter_policy and filter_policy.tags:
-            relaxed_query = self._build_query(
-                city=city,
-                place_type=place_type,
-                filter_policy=ResourceFilterPolicy(
-                    place_type=filter_policy.place_type,
-                    area=filter_policy.area,
-                    min_price=filter_policy.min_price,
-                    max_price=filter_policy.max_price,
-                ),
-            )
-            results = self.search_service.search(relaxed_query)
-
-        ranked_results = self._rank_results(results, filter_policy, policy)
-        return ranked_results[:limit]
+        query = self._build_query(city, place_type, filter_policy, limit)
+        return self.search_service.search(query)
 
     def _build_query(
         self,
         city: str | None,
         place_type: str,
         filter_policy: ResourceFilterPolicy | None,
+        limit: int,
     ) -> PlaceSearchQuery:
         """把单类过滤策略转换成资源查询服务请求。"""
 
         if filter_policy is None:
-            return PlaceSearchQuery(city=city, place_type=place_type)
+            return PlaceSearchQuery(city=city, place_type=place_type, limit=limit)
 
         return PlaceSearchQuery(
             city=city,
@@ -123,6 +108,7 @@ class CandidateContextBuilder:
             tags=filter_policy.tags,
             min_price=filter_policy.min_price,
             max_price=filter_policy.max_price,
+            limit=limit,
         )
 
     @staticmethod
@@ -135,44 +121,6 @@ class CandidateContextBuilder:
             if filter_policy.place_type == place_type:
                 return filter_policy
         return None
-
-    def _rank_results(
-        self,
-        places: list[Place],
-        filter_policy: ResourceFilterPolicy | None,
-        policy: RecommendationPolicy,
-    ) -> list[Place]:
-        """根据标签、人群和预算倾向做轻量排序。"""
-
-        return sorted(
-            places,
-            key=lambda place: self._sort_key(place, filter_policy, policy),
-        )
-
-    def _sort_key(
-        self,
-        place: Place,
-        filter_policy: ResourceFilterPolicy | None,
-        policy: RecommendationPolicy,
-    ) -> tuple[int, float, str]:
-        """生成确定性排序键，分数高的资源排在前面。"""
-
-        tag_score = self._match_count(place.tags, filter_policy.tags if filter_policy else [])
-        people_score = self._match_count(place.suitable_for, policy.people_direction)
-        score = tag_score * 3 + people_score
-
-        if policy.budget_direction == "预算友好":
-            price_key = place.price if place.price is not None else float("inf")
-        else:
-            price_key = 0.0
-
-        return (-score, price_key, place.name)
-
-    @staticmethod
-    def _match_count(source: list[str], targets: list[str]) -> int:
-        """统计两个标签集合中完全命中的数量。"""
-
-        return len(set(source).intersection(set(targets)))
 
     @classmethod
     def _validate_limits(cls, limits: int | dict[str, int]) -> None:
