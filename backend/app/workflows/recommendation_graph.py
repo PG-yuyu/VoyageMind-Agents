@@ -1,9 +1,10 @@
-"""第六步推荐工作流入口。"""
+"""成员二推荐工作流入口。"""
 
 from __future__ import annotations
 
 from backend.app.agents import RecommendationAgent, RecommendationState
 from backend.app.schemas import RecommendationContext, RecommendationResult
+from backend.app.services import EvidenceEnrichmentService
 
 
 def run_recommendation_workflow(
@@ -49,10 +50,23 @@ def run_recommendation_workflow_with_state(
     return state
 
 
+def run_recommendation_with_evidence_workflow(
+    context: RecommendationContext,
+    agent: RecommendationAgent | None = None,
+    evidence_service: EvidenceEnrichmentService | None = None,
+) -> RecommendationResult:
+    """运行推荐流程，并在第八步补充 RAG 推荐依据。"""
+
+    result = run_recommendation_workflow(context=context, agent=agent)
+    service = evidence_service or EvidenceEnrichmentService()
+    return service.enrich_result(result)
+
+
 ResourceRecommendationWorkflow = run_recommendation_workflow
 
 __all__ = [
     "ResourceRecommendationWorkflow",
     "run_recommendation_workflow",
+    "run_recommendation_with_evidence_workflow",
     "run_recommendation_workflow_with_state",
 ]

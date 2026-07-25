@@ -3,11 +3,13 @@
 from .recommendation_graph import (
     ResourceRecommendationWorkflow,
     run_recommendation_workflow,
+    run_recommendation_with_evidence_workflow,
     run_recommendation_workflow_with_state,
 )
 
 __all__ = [
     "ResourceRecommendationWorkflow",
     "run_recommendation_workflow",
+    "run_recommendation_with_evidence_workflow",
     "run_recommendation_workflow_with_state",
 ]
