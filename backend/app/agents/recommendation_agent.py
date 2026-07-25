@@ -82,6 +82,7 @@ class RecommendationAgent:
             policy=policy,
             city=context.requirements.city,
             per_type_limit=self.candidate_limits,
+            context=context,
         )
         state.record_candidates(
             attractions=candidates.attractions,
