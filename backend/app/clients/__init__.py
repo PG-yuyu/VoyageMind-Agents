@@ -1,6 +1,6 @@
 """外部服务客户端集合。"""
 
-from .amap_client import AmapClient
+from .amap_client import AmapClient, AmapGeoResult, AmapReverseGeoResult
 from .rag_client import (
     DEFAULT_EVIDENCE_TYPES,
     DEFAULT_KNOWLEDGE_BASE_ID,
@@ -13,6 +13,8 @@ from .rag_client import (
 
 __all__ = [
     "AmapClient",
+    "AmapGeoResult",
+    "AmapReverseGeoResult",
     "DEFAULT_EVIDENCE_TYPES",
     "DEFAULT_KNOWLEDGE_BASE_ID",
     "LangChainRagServiceAdapter",
