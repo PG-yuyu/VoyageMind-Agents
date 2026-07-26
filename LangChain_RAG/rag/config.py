@@ -28,7 +28,7 @@ class Settings:
     # ── LLM Provider (DeepSeek / OpenAI 兼容 API) ──
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com"
-    llm_model: str = "deepseek-chat"
+    llm_model: str = "deepseek-v4-flash"
     llm_temperature: float = 0.3
     llm_max_tokens: int = 4096
     llm_timeout: int = 60
@@ -54,7 +54,7 @@ class Settings:
         return cls(
             llm_api_key=os.getenv("LLM_API_KEY", ""),
             llm_base_url=os.getenv("LLM_BASE_URL", "https://api.deepseek.com"),
-            llm_model=os.getenv("LLM_MODEL", "deepseek-chat"),
+            llm_model=os.getenv("LLM_MODEL", "deepseek-v4-flash"),
             llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.3")),
             llm_max_tokens=int(os.getenv("LLM_MAX_TOKENS", "4096")),
             llm_timeout=int(os.getenv("LLM_TIMEOUT", "60")),
