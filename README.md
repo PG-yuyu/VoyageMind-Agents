@@ -40,14 +40,14 @@ copy .env.example .env
 
 ```text
 DEEPSEEK_API_KEY=你的 DeepSeek Key
-DEFAULT_MODEL=deepseek-chat
+DEFAULT_MODEL=deepseek-v4-flash
 ```
 
 也可以临时在 PowerShell 中设置：
 
 ```powershell
 $env:DEEPSEEK_API_KEY="你的 DeepSeek Key"
-$env:DEFAULT_MODEL="deepseek-chat"
+$env:DEFAULT_MODEL="deepseek-v4-flash"
 uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 

@@ -1,3 +1,5 @@
+import re
+
 from backend.schemas import IntentResult
 
 
@@ -27,7 +29,7 @@ class IntentService:
         "怎么去",
         "开放时间",
     ]
-    create_words = ["规划", "安排", "生成", "旅游", "行程", "几日游", "自由行"]
+    create_words = ["规划", "安排", "生成", "旅游", "旅行", "行程", "几日游", "自由行"]
 
     def detect(self, message: str) -> IntentResult:
         text = message.strip()
@@ -51,7 +53,9 @@ class IntentService:
                 original_text=text,
             )
 
-        has_create_signal = any(word in text for word in self.create_words)
+        has_create_signal = any(word in text for word in self.create_words) or bool(
+            re.search(r"(\d+|一|二|两|三|四|五)\s*[天日]\s*游", text)
+        )
         has_change_signal = any(
             word in text
             for word in ["换", "改", "调整", "降低", "提高", "降到", "删除", "减少"]
@@ -76,7 +80,7 @@ class IntentService:
         ):
             return IntentResult(intent="travel_qa", confidence=0.84, original_text=text)
 
-        if any(word in text for word in self.create_words):
+        if has_create_signal or ("天津" in text and "预算" in text):
             return IntentResult(
                 intent="create_trip", confidence=0.9, original_text=text
             )

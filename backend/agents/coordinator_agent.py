@@ -31,7 +31,7 @@ class CoordinatorAgent:
     ) -> None:
         self.chatbot_service = chatbot_service or ChatbotService()
         self.intent_agent = IntentAgent(self.chatbot_service)
-        self.requirement_adapter = RequirementAdapter()
+        self.requirement_adapter = RequirementAdapter(self.chatbot_service)
         self.workflow_service = WorkflowService()
         self.rag_service = rag_service or RAGService()
         self.recommendation_integration_service = (
