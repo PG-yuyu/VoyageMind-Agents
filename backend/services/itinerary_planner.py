@@ -164,7 +164,7 @@ def _build_day_timeline(
     items.append(_make_item(
         day_num=day_num, idx=item_idx, item_type=ItemType.DEPARTURE,
         place_id=hotel_place_id, start=current_time, end=current_time,
-        duration=0, cost=0, people=people, locked=True,
+        duration=0, cost_per_person=0, people=people, locked=True,
         note=f"从{(hotel or {}).get('name', '酒店')}出发",
     ))
     item_idx += 1
@@ -240,7 +240,7 @@ def _build_day_timeline(
         day_num=day_num, idx=item_idx, item_type=ItemType.RETURN,
         place_id=hotel_place_id, start=return_time,
         end=_add_minutes(return_time, 15),
-        duration=15, cost=0, people=people, locked=True,
+        duration=15, cost_per_person=0, people=people, locked=True,
         note="返回酒店",
     ))
 
