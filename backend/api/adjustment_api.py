@@ -2,7 +2,6 @@
 调整 API
 ========
 
-- POST /api/v1/itineraries/auto-adjust     自动调整
 - POST /api/v1/itineraries/modify          用户主动修改
 - POST /api/v1/itineraries/local-replan    局部重规划
 """
@@ -15,7 +14,7 @@ from fastapi import APIRouter
 
 from backend.schemas import ApiResponse
 from backend.schemas.modification import ModificationRequest
-from backend.agents.adjustment_agent import AdjustmentAgent
+from backend.agents.adjustment_agent import AdjustmentAgent, _dummy_llm
 
 router = APIRouter(prefix="/api/v1/itineraries", tags=["adjustment"])
 
@@ -35,6 +34,32 @@ async def api_modify(request: ModificationRequest) -> ApiResponse:
         )
 
 
-def _dummy_llm(prompt: str) -> str:
-    """开发用占位 LLM 调用（后续替换为真实 LLM）。"""
-    return '{"days": []}'
+@router.post("/local-replan")
+async def api_local_replan(
+    itinerary_id: str,
+    base_version: int = 1,
+    target_day: int | None = None,
+    target_item_id: str | None = None,
+    action: str = "replace",
+    constraints: dict[str, Any] | None = None,
+) -> ApiResponse:
+    """仅对指定天/项进行局部重规划。"""
+    try:
+        request = ModificationRequest(
+            session_id="",
+            itinerary_id=itinerary_id,
+            base_version=max(base_version, 1),
+            action=action,
+            target_day=target_day,
+            target_item_id=target_item_id,
+            new_constraints=constraints or {},
+        )
+        agent = AdjustmentAgent(llm_callable=_dummy_llm)
+        result = agent.modify(request=request)
+        return ApiResponse(success=True, data=result)
+    except Exception as exc:
+        return ApiResponse(
+            success=False,
+            code="INTERNAL_ERROR",
+            message=str(exc),
+        )

@@ -48,7 +48,7 @@ class AdjustmentAgent:
 
     def __init__(
         self,
-        llm_callable: Callable[[str], str],
+        llm_callable: Callable[[str], str] | None = None,
         alternative_place_fetcher: Callable | None = None,
     ):
         """
@@ -57,7 +57,7 @@ class AdjustmentAgent:
             alternative_place_fetcher: 获取替代地点的函数，签名:
                 (original_place_id, constraints) -> list[dict]
         """
-        self._llm = llm_callable
+        self._llm = llm_callable or _dummy_llm
         self._fetch_alternatives = alternative_place_fetcher
 
     # ====================================================================
@@ -291,3 +291,8 @@ def _day_items(itinerary: dict, day_num: int) -> list[dict]:
         if day.get("day") == day_num:
             return day.get("items", [])
     return []
+
+
+def _dummy_llm(prompt: str) -> str:
+    """开发用占位 LLM 调用（后续替换为真实 LLM）。"""
+    return '{"days": []}'

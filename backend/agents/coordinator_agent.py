@@ -1,5 +1,7 @@
+from backend.agents.adjustment_agent import AdjustmentAgent
 from backend.agents.intent_agent import IntentAgent
 from backend.schemas import ChatResponse
+from backend.schemas.modification import ModificationRequest
 from backend.services.chatbot_service import ChatbotService
 from backend.services.rag_service import RAGService
 from backend.services.recommendation_integration_service import (
@@ -28,6 +30,7 @@ class CoordinatorAgent:
         rag_service: RAGService | None = None,
         recommendation_integration_service: RecommendationIntegrationService
         | None = None,
+        adjustment_agent: AdjustmentAgent | None = None,
     ) -> None:
         self.chatbot_service = chatbot_service or ChatbotService()
         self.intent_agent = IntentAgent(self.chatbot_service)
@@ -37,6 +40,7 @@ class CoordinatorAgent:
         self.recommendation_integration_service = (
             recommendation_integration_service or RecommendationIntegrationService()
         )
+        self.adjustment_agent = adjustment_agent or AdjustmentAgent()
 
     def run(self, session_id: str, message: str) -> ChatResponse:
         store.ensure_session(session_id)
@@ -78,26 +82,85 @@ class CoordinatorAgent:
         store.agent_traces[session_id] = trace.model_dump()
 
         recommendation_output = None
+        itinerary = None
+        itinerary_modified = False
 
         if extraction.need_follow_up:
             reply = extraction.follow_up_question or "还需要补充关键信息。"
             workflow_status = "waiting_for_user"
+
         elif intent.intent == "modify_trip":
-            reply = self.chatbot_service.summarize_agent_reply(
-                message,
-                {
-                    "branch": "modify_trip",
-                    "intent": intent.model_dump(),
-                    "requirements": extraction.model_dump(),
-                    "next_tool_calls": [
-                        "itineraries.modify",
-                        "recommendations.alternatives",
-                        "itineraries.local_replan",
-                    ],
-                },
-            )
-            workflow_status = "planning"
+            # 查找当前会话的行程 ID 和版本
+            session = store.sessions.get(session_id)
+            current_itinerary_id = session.current_itinerary_id if session else None
+            current_version = session.current_version if session else 1
+
+            if current_itinerary_id:
+                try:
+                    # 构建修改请求
+                    mod_request = ModificationRequest(
+                        session_id=session_id,
+                        itinerary_id=current_itinerary_id,
+                        base_version=current_version,
+                        action=intent.sub_intent or "replace_attraction",
+                        original_text=message,
+                    )
+                    # 调用成员三调整 Agent
+                    mod_result = self.adjustment_agent.modify(
+                        request=mod_request,
+                        requirements=extraction.requirements.model_dump()
+                            if hasattr(extraction.requirements, "model_dump")
+                            else {},
+                    )
+
+                    itinerary = mod_result.get("itinerary")
+                    trip_diff = mod_result.get("diff")
+                    evaluation = mod_result.get("evaluation")
+                    budget = mod_result.get("budget")
+                    affected_days = mod_result.get("affected_days", [])
+
+                    trace = self.workflow_service.build_trace(
+                        session_id=session_id,
+                        intent=intent.intent,
+                        has_missing_fields=False,
+                        member2_recommendation_status="success",
+                        member2_route_status="success",
+                    )
+
+                    reply = self.chatbot_service.summarize_agent_reply(
+                        message,
+                        {
+                            "branch": "modify_trip",
+                            "intent": intent.model_dump(),
+                            "requirements": extraction.model_dump(),
+                            "modification_result": {
+                                "affected_days": affected_days,
+                                "changes": trip_diff.get("changes", [])
+                                    if trip_diff else [],
+                                "evaluation_passed": evaluation.get("passed", True)
+                                    if evaluation else True,
+                            },
+                        },
+                    )
+                    workflow_status = "completed"
+                    itinerary_modified = True
+                except Exception as exc:
+                    trace = self.workflow_service.build_trace(
+                        session_id=session_id,
+                        intent=intent.intent,
+                        has_missing_fields=False,
+                        member2_recommendation_status="failed",
+                        member2_route_status="failed",
+                    )
+                    reply = f"行程修改处理失败: {exc}"
+                    workflow_status = "failed"
+            else:
+                # 没有行程可修改
+                reply = "当前没有已生成的行程可供修改。请先通过「智能规划」创建一个行程。"
+                workflow_status = "failed"
+
         else:
+            # create_trip 分支
             try:
                 recommendation_output = (
                     self.recommendation_integration_service.recommend_for_request(
@@ -158,6 +221,11 @@ class CoordinatorAgent:
             routes = None
 
         store.add_message(session_id, "assistant", reply)
+        # 如果行程被修改，更新会话中的版本号
+        if itinerary_modified and itinerary:
+            session = store.sessions.get(session_id)
+            if session:
+                session.current_version = itinerary.get("version", session.current_version)
 
         return ChatResponse(
             message_id=user_message.message_id,
@@ -165,7 +233,7 @@ class CoordinatorAgent:
             reply=reply,
             workflow_status=workflow_status,
             requirements=extraction.requirements,
-            itinerary=None,
+            itinerary=itinerary,
             recommendation_result=recommendation_result,
             map_resources=map_resources,
             routes=routes,
