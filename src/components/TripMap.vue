@@ -474,7 +474,7 @@ function clamp(value, min, max) {
 <style scoped>
 .trip-map {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -487,6 +487,7 @@ function clamp(value, min, max) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  padding: 0 4px;
 }
 
 .trip-map__head h2 {
@@ -547,9 +548,9 @@ function clamp(value, min, max) {
 
 .trip-map__layout {
   display: grid;
-  grid-template-columns: minmax(620px, 1fr) 380px;
+  grid-template-columns: minmax(760px, 1fr) 440px;
   align-items: stretch;
-  gap: 16px;
+  gap: 18px;
   min-height: 0;
 }
 
@@ -563,8 +564,8 @@ function clamp(value, min, max) {
 .trip-map__canvas {
   position: relative;
   z-index: 0;
-  height: clamp(500px, 58vh, 660px);
-  min-height: 500px;
+  height: clamp(620px, 72vh, 820px);
+  min-height: 620px;
   overflow: hidden;
   border: 1px solid rgba(218, 228, 238, 0.9);
   border-radius: 22px;
@@ -646,14 +647,14 @@ function clamp(value, min, max) {
   gap: 12px;
   min-width: 0;
   min-height: 0;
-  height: clamp(500px, 58vh, 660px);
+  height: clamp(620px, 72vh, 820px);
   overflow: hidden;
 }
 
 .selected-place {
   display: grid;
-  gap: 14px;
-  padding: 17px;
+  gap: 12px;
+  padding: 16px;
   border: 1px solid #dfe8f2;
   border-radius: 20px;
   background: #fbfdff;
@@ -672,9 +673,9 @@ function clamp(value, min, max) {
 
 .selected-place strong {
   display: block;
-  margin-top: 9px;
+  margin-top: 8px;
   color: #101827;
-  font-size: 20px;
+  font-size: 19px;
   line-height: 1.25;
 }
 
@@ -683,6 +684,7 @@ function clamp(value, min, max) {
   overflow: hidden;
   margin: 8px 0 0;
   color: #647286;
+  font-size: 14px;
   line-height: 1.55;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -696,7 +698,7 @@ function clamp(value, min, max) {
 }
 
 .selected-place dl div {
-  padding: 10px;
+  padding: 9px 10px;
   border-radius: 14px;
   background: #f4f7fb;
 }
@@ -728,8 +730,8 @@ function clamp(value, min, max) {
 .map-summary article {
   display: grid;
   gap: 4px;
-  min-height: 64px;
-  padding: 11px;
+  min-height: 58px;
+  padding: 10px 11px;
   border: 1px solid #e1e9f2;
   border-radius: 16px;
   background: #f8fbff;
