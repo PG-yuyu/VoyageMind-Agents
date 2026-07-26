@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>城市自由行智能规划系统 — 可视化验证报告</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       background: #f5f5f5; color: #333; padding: 20px; }
+.container { max-width: 960px; margin: 0 auto; }
+h1 { font-size: 24px; margin-bottom: 8px; }
+.subtitle { color: #888; font-size: 14px; margin-bottom: 24px; }
+.card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px;
+         box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.card h2 { font-size: 16px; margin-bottom: 12px; color: #1890ff; }
+
+/* 状态卡片 */
+.stats-row { display: flex; gap: 12px; }
+.stat-card { flex: 1; padding: 16px; border-radius: 8px; text-align: center; }
+.stat-card h3 { font-size: 12px; margin-bottom: 4px; opacity: 0.8; }
+.stat-card .value { font-size: 28px; font-weight: 700; }
+.stat-card.passed { background: #f6ffed; border: 1px solid #b7eb8f; }
+.stat-card.failed { background: #fff2f0; border: 1px solid #ffccc7; }
+.stat-card.info { background: #e6f7ff; border: 1px solid #91d5ff; }
+
+/* 时间轴 */
+.day-card { margin-bottom: 16px; border: 1px solid #eee; border-radius: 6px; overflow: hidden; }
+.day-header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #fafafa; }
+.day-header h3 { font-size: 14px; margin: 0; }
+.day-date { color: #888; font-size: 13px; }
+.day-stats { margin-left: auto; font-size: 13px; color: #888; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+th { background: #fafafa; font-weight: 500; color: #888; font-size: 12px; }
+.type-tag { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 11px; font-weight: 500; }
+.type-attraction { background: #e6f7ff; color: #1890ff; }
+.type-lunch, .type-dinner { background: #f6ffed; color: #52c41a; }
+.type-hotel { background: #fffbe6; color: #faad14; }
+.type-departure, .type-return { background: #f5f5f5; color: #888; }
+
+/* 校验问题 */
+.issue-item { padding: 8px 12px; margin-bottom: 6px; border-radius: 4px; border-left: 3px solid; font-size: 13px; }
+.issue-item.error { background: #fff2f0; border-color: #ff4d4f; }
+.issue-item.warning { background: #fffbe6; border-color: #faad14; }
+.issue-item.info { background: #e6f7ff; border-color: #1890ff; }
+.issue-code { font-family: monospace; font-size: 11px; color: #888; margin-right: 8px; }
+.issue-sug { display: block; color: #1890ff; margin-top: 4px; font-size: 12px; }
+
+/* 预算条 */
+.budget-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+.bar-label { width: 40px; }
+.bar-track { flex: 1; height: 16px; background: #f0f0f0; border-radius: 8px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 8px; transition: width 0.5s; }
+.bar-value { width: 120px; text-align: right; color: #888; }
+
+/* 指标网格 */
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.metric-item { text-align: center; padding: 8px; background: #fafafa; border-radius: 4px; }
+.metric-item .label { font-size: 11px; color: #888; }
+.metric-item .value { font-size: 18px; font-weight: 600; }
+
+.modules { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
+.module-item { padding: 6px 10px; background: #f6ffed; border: 1px solid #b7eb8f; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>🏙️ 城市自由行智能规划系统</h1>
+    <p class="subtitle">成员三 — 行程规划与调整 Agent · 可视化验证报告 · VoyageMind-Agents-tourism-resource-recommendation-map</p>
+
+    <!-- 状态总览 -->
+    <div class="card">
+        <h2>📊 系统状态</h2>
+        <div class="stats-row">
+            <div class="stat-card failed">
+                <h3>硬约束校验</h3>
+                <div class="value">未通过</div>
+            </div>
+            <div class="stat-card info">
+                <h3>总费用</h3>
+                <div class="value">¥2140</div>
+            </div>
+            <div class="stat-card info">
+                <h3>预算</h3>
+                <div class="value">¥2500</div>
+            </div>
+            <div class="stat-card info">
+                <h3>行程天数</h3>
+                <div class="value">2 天</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模块清单 -->
+    <div class="card">
+        <h2>📦 交付模块 (43 项)</h2>
+        <div class="modules">
+            <div class="module-item">agents/ (4)</div>
+            <div class="module-item">prompts/ (6)</div>
+            <div class="module-item">schemas/ (8)</div>
+            <div class="module-item">validators/ (8)</div>
+            <div class="module-item">services/ (7)</div>
+            <div class="module-item">api/ (4)</div>
+            <div class="module-item">clients/ (1)</div>
+            <div class="module-item">mock/ (11)</div>
+            <div class="module-item">frontend/ (15)</div>
+            <div class="module-item">docs/ (5)</div>
+        </div>
+    </div>
+
+    <!-- 行程时间轴 -->
+    <div class="card">
+        <h2>📅 行程时间轴</h2>
+        
+        <div class="day-card">
+            <div class="day-header">
+                <h3>第 1 天</h3>
+                <span class="day-date">2026-07-25</span>
+                <span class="day-stats">步行 6500m | 费用 ¥280</span>
+            </div>
+            <table><thead><tr><th>时间</th><th>类型</th><th>地点</th><th>时长</th><th>费用</th></tr></thead>
+            <tbody>
+            <tr>
+                <td class="time-cell">09:00-09:00</td>
+                <td><span class="type-tag type-departure">departure</span></td>
+                <td>new_place_001</td>
+                <td>0min</td>
+                <td>¥0</td>
+            </tr>
+            <tr>
+                <td class="time-cell">09:30-12:00</td>
+                <td><span class="type-tag type-attraction">attraction</span></td>
+                <td>attraction_001</td>
+                <td>150min</td>
+                <td>¥120</td>
+            </tr>
+            <tr>
+                <td class="time-cell">12:00-13:00</td>
+                <td><span class="type-tag type-lunch">lunch</span></td>
+                <td>restaurant_001</td>
+                <td>60min</td>
+                <td>¥100</td>
+            </tr>
+            <tr>
+                <td class="time-cell">13:30-16:00</td>
+                <td><span class="type-tag type-attraction">attraction</span></td>
+                <td>attraction_002</td>
+                <td>150min</td>
+                <td>¥60</td>
+            </tr>
+            <tr>
+                <td class="time-cell">16:30-17:00</td>
+                <td><span class="type-tag type-return">return</span></td>
+                <td>hotel_001</td>
+                <td>30min</td>
+                <td>¥0</td>
+            </tr></tbody></table>
+        </div>
+        <div class="day-card">
+            <div class="day-header">
+                <h3>第 2 天</h3>
+                <span class="day-date">2026-07-26</span>
+                <span class="day-stats">步行 7200m | 费用 ¥160</span>
+            </div>
+            <table><thead><tr><th>时间</th><th>类型</th><th>地点</th><th>时长</th><th>费用</th></tr></thead>
+            <tbody>
+            <tr>
+                <td class="time-cell">09:00-09:00</td>
+                <td><span class="type-tag type-departure">departure</span></td>
+                <td>hotel_001</td>
+                <td>0min</td>
+                <td>¥0</td>
+            </tr>
+            <tr>
+                <td class="time-cell">09:20-11:30</td>
+                <td><span class="type-tag type-attraction">attraction</span></td>
+                <td>attraction_003</td>
+                <td>130min</td>
+                <td>¥40</td>
+            </tr>
+            <tr>
+                <td class="time-cell">12:00-13:00</td>
+                <td><span class="type-tag type-lunch">lunch</span></td>
+                <td>restaurant_002</td>
+                <td>60min</td>
+                <td>¥120</td>
+            </tr>
+            <tr>
+                <td class="time-cell">13:40-16:30</td>
+                <td><span class="type-tag type-attraction">attraction</span></td>
+                <td>attraction_004</td>
+                <td>170min</td>
+                <td>¥0</td>
+            </tr>
+            <tr>
+                <td class="time-cell">17:00-17:30</td>
+                <td><span class="type-tag type-return">return</span></td>
+                <td>hotel_001</td>
+                <td>30min</td>
+                <td>¥0</td>
+            </tr></tbody></table>
+        </div>
+    </div>
+
+    <!-- 预算明细 -->
+    <div class="card">
+        <h2>💰 预算明细</h2>
+        
+            <div class="budget-bar-row">
+                <span class="bar-label">酒店</span>
+                <div class="bar-track">
+                    <div class="bar-fill" style="width:42%;background:#faad14"></div>
+                </div>
+                <span class="bar-value">¥900 (42%)</span>
+            </div>
+            <div class="budget-bar-row">
+                <span class="bar-label">门票</span>
+                <div class="bar-track">
+                    <div class="bar-fill" style="width:11%;background:#1890ff"></div>
+                </div>
+                <span class="bar-value">¥240 (11%)</span>
+            </div>
+            <div class="budget-bar-row">
+                <span class="bar-label">餐饮</span>
+                <div class="bar-track">
+                    <div class="bar-fill" style="width:37%;background:#52c41a"></div>
+                </div>
+                <span class="bar-value">¥800 (37%)</span>
+            </div>
+            <div class="budget-bar-row">
+                <span class="bar-label">交通</span>
+                <div class="bar-track">
+                    <div class="bar-fill" style="width:9%;background:#722ed1"></div>
+                </div>
+                <span class="bar-value">¥200 (9%)</span>
+            </div>
+        <div style="margin-top:12px;padding:12px;background:#fafafa;border-radius:6px;font-size:14px;">
+            总计: <strong>¥2140</strong>
+            &nbsp;/&nbsp; 预算: ¥2500
+            &nbsp;/&nbsp; 剩余: <strong style="color:#52c41a">
+                ¥360</strong>
+            &nbsp;/&nbsp; 超支: 否
+        </div>
+    </div>
+
+    <!-- 校验结果 -->
+    <div class="card">
+        <h2>✅ 硬约束校验 (1 项问题)</h2>
+        
+        <div class="issue-item error">
+            <span class="issue-code">ValidationCode.MUST_VISIT_MISSING</span>
+            <span class="issue-msg">必去景点「故宫博物院」未在行程中安排</span>
+            <span class="issue-sug">💡 将「故宫博物院」加入行程</span>
+        </div>
+    </div>
+
+    <!-- 量化指标 -->
+    <div class="card">
+        <h2>📈 量化指标</h2>
+        <div class="metrics-grid">
+            <div class="metric-item"><div class="label">预算匹配率</div><div class="value">94%</div></div>
+            <div class="metric-item"><div class="label">兴趣覆盖率</div><div class="value">0%</div></div>
+            <div class="metric-item"><div class="label">必去覆盖率</div><div class="value">0%</div></div>
+            <div class="metric-item"><div class="label">时间有效性</div><div class="value">✓</div></div>
+            <div class="metric-item"><div class="label">步行合规</div><div class="value">✓</div></div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
