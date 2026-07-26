@@ -48,7 +48,7 @@ class CandidateContextBuilder:
         self,
         policy: RecommendationPolicy,
         city: str | None,
-        per_type_limit: int | dict[str, int] = 2,
+        per_type_limit: int | dict[str, int | None] | None = None,
         context: RecommendationContext | None = None,
     ) -> CandidateResourceContext:
         """按策略查询每类候选资源，并返回统一上下文。"""
@@ -86,7 +86,7 @@ class CandidateContextBuilder:
         policy: RecommendationPolicy,
         city: str | None,
         place_type: str,
-        limit: int,
+        limit: int | None,
         context: RecommendationContext | None,
     ) -> list[Place]:
         """查询单类候选资源，只执行模型策略和硬性事实过滤。"""
@@ -100,7 +100,7 @@ class CandidateContextBuilder:
         city: str | None,
         place_type: str,
         filter_policy: ResourceFilterPolicy | None,
-        limit: int,
+        limit: int | None,
         context: RecommendationContext | None,
     ) -> PlaceSearchQuery:
         """把单类过滤策略转换成资源查询服务请求。"""
@@ -171,9 +171,11 @@ class CandidateContextBuilder:
         return None
 
     @classmethod
-    def _validate_limits(cls, limits: int | dict[str, int]) -> None:
+    def _validate_limits(cls, limits: int | dict[str, int | None] | None) -> None:
         """校验每类候选资源数量限制。"""
 
+        if limits is None:
+            return
         if isinstance(limits, int):
             if limits <= 0:
                 raise ValueError("每类候选资源数量必须大于 0")
@@ -182,16 +184,21 @@ class CandidateContextBuilder:
         for place_type, limit in limits.items():
             if place_type not in cls.RESOURCE_TYPES:
                 raise ValueError("候选资源类型必须是景点、酒店或餐厅之一")
-            if limit <= 0:
+            if limit is not None and limit <= 0:
                 raise ValueError("每类候选资源数量必须大于 0")
 
     @staticmethod
-    def _limit_for_type(limits: int | dict[str, int], place_type: str) -> int:
+    def _limit_for_type(
+        limits: int | dict[str, int | None] | None,
+        place_type: str,
+    ) -> int | None:
         """读取指定资源类型的候选数量限制。"""
 
+        if limits is None:
+            return None
         if isinstance(limits, int):
             return limits
-        return limits[place_type]
+        return limits.get(place_type)
 
 
 __all__ = ["CandidateContextBuilder", "CandidateResourceContext"]

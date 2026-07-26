@@ -28,36 +28,14 @@ from .recommendation_state import RecommendationState
 class RecommendationAgent:
     """由大模型主导选择景点、酒店和餐厅推荐结果。"""
 
-    DEFAULT_SELECTION_LIMITS = {
-        "attraction": 3,
-        "hotel": 1,
-        "restaurant": 2,
-    }
-    DEFAULT_CANDIDATE_LIMITS = {
-        "attraction": 10,
-        "hotel": 10,
-        "restaurant": 10,
-    }
-
     def __init__(
         self,
         policy_agent: RecommendationPolicyAgent | None = None,
         candidate_builder: CandidateContextBuilder | None = None,
         model_service: LLMJsonService | None = None,
         guard: RecommendationGuard | None = None,
-        per_type_limit: int | None = None,
-        per_type_limits: dict[str, int] | None = None,
-        candidate_limits: dict[str, int] | None = None,
     ) -> None:
         """注入策略 Agent、候选查询服务、大模型服务和硬约束校验器。"""
-
-        self.selection_limits = self._build_selection_limits(
-            per_type_limit=per_type_limit,
-            per_type_limits=per_type_limits,
-        )
-        self.candidate_limits = candidate_limits or dict(self.DEFAULT_CANDIDATE_LIMITS)
-        self._validate_limits(self.selection_limits)
-        self._validate_limits(self.candidate_limits)
 
         self.policy_agent = policy_agent or RecommendationPolicyAgent()
         self.candidate_builder = candidate_builder or CandidateContextBuilder()
@@ -81,7 +59,6 @@ class RecommendationAgent:
         candidates = self.candidate_builder.build(
             policy=policy,
             city=context.requirements.city,
-            per_type_limit=self.candidate_limits,
             context=context,
         )
         state.record_candidates(
@@ -150,11 +127,6 @@ class RecommendationAgent:
                 "unresolved_fields": list(context.unresolved_fields),
             },
             "recommendation_policy": asdict(policy),
-            "selection_limits": {
-                "attractions": self.selection_limits["attraction"],
-                "hotels": self.selection_limits["hotel"],
-                "restaurants": self.selection_limits["restaurant"],
-            },
             "candidates": {
                 "attractions": [place.to_dict() for place in candidates.attractions],
                 "hotels": [place.to_dict() for place in candidates.hotels],
@@ -195,7 +167,6 @@ class RecommendationAgent:
             candidate_map,
             "restaurant",
         )
-        self._validate_selection_limits(attractions, hotels, restaurants)
 
         result = RecommendationResult(
             policy_summary=self._required_str(model_output, "policy_summary"),
@@ -289,23 +260,6 @@ class RecommendationAgent:
         if model_output.get("evidence"):
             raise ModelDecisionError("Step 6 不允许模型生成 RAG 证据，请重试")
 
-    def _validate_selection_limits(
-        self,
-        attractions: list[Place],
-        hotels: list[Place],
-        restaurants: list[Place],
-    ) -> None:
-        """校验模型选择数量是否超过本步骤输出约定。"""
-
-        counts = {
-            "attraction": len(attractions),
-            "hotel": len(hotels),
-            "restaurant": len(restaurants),
-        }
-        for place_type, count in counts.items():
-            if count > self.selection_limits[place_type]:
-                raise ModelDecisionError("大模型选择数量超过限制，请重试")
-
     @staticmethod
     def _candidate_map(candidates: CandidateResourceContext) -> dict[str, Place]:
         """建立候选地点索引。"""
@@ -318,32 +272,6 @@ class RecommendationAgent:
                 *candidates.restaurants,
             ]
         }
-
-    @classmethod
-    def _build_selection_limits(
-        cls,
-        per_type_limit: int | None,
-        per_type_limits: dict[str, int] | None,
-    ) -> dict[str, int]:
-        """兼容旧参数并生成模型选择数量限制。"""
-
-        if per_type_limits is not None:
-            return dict(per_type_limits)
-        if per_type_limit is not None:
-            return {
-                place_type: per_type_limit
-                for place_type in cls.DEFAULT_SELECTION_LIMITS
-            }
-        return dict(cls.DEFAULT_SELECTION_LIMITS)
-
-    @staticmethod
-    def _validate_limits(limits: dict[str, int]) -> None:
-        """校验资源数量限制。"""
-
-        for place_type in ("attraction", "hotel", "restaurant"):
-            limit = limits.get(place_type)
-            if limit is None or limit <= 0:
-                raise ValueError("每类资源数量限制必须大于 0")
 
     @staticmethod
     def _str_list(value: Any, field_name: str) -> list[str]:
