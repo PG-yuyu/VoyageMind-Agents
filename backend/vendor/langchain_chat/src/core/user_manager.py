@@ -8,7 +8,9 @@
     - 这样切换存储后端时，UserManager 无需修改。
     - 业务层负责：参数校验、错误处理、业务规则（如用户名唯一）。
 """
+
 import logging
+
 logger = logging.getLogger(__name__)
 from typing import Optional
 
@@ -28,7 +30,9 @@ class UserManager:
     def __init__(self, backend: StorageBackend):
         self.backend = backend
 
-    async def create_user(self, username: str, default_model: Optional[str] = None) -> User:
+    async def create_user(
+        self, username: str, default_model: Optional[str] = None
+    ) -> User:
         """创建用户（B1）。用户名唯一校验。
 
         参数：

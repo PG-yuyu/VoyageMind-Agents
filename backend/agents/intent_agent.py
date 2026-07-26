@@ -30,17 +30,19 @@ class IntentAgent:
             ),
             user_prompt=(
                 "请识别用户输入的旅行意图，返回 JSON："
-                "{\"intent\":\"create_trip|modify_trip|travel_qa\","
-                "\"confidence\":0.0到1.0,"
-                "\"sub_intent\":null或修改子意图,"
-                "\"original_text\":\"原文\"}\n"
+                '{"intent":"create_trip|modify_trip|travel_qa",'
+                '"confidence":0.0到1.0,'
+                '"sub_intent":null或修改子意图,'
+                '"original_text":"原文"}\n'
                 f"用户输入：{message}"
             ),
             fallback=fallback.model_dump(),
         )
         return self._normalize_result(result, fallback, message)
 
-    def _normalize_result(self, result: dict, fallback: IntentResult, message: str) -> IntentResult:
+    def _normalize_result(
+        self, result: dict, fallback: IntentResult, message: str
+    ) -> IntentResult:
         valid_intents = {"create_trip", "modify_trip", "travel_qa"}
         valid_sub_intents = {
             "replace_attraction",

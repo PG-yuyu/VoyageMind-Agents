@@ -1,0 +1,82 @@
+[
+  {
+    "place_id": "restaurant_001",
+    "name": "北京家常菜馆",
+    "place_type": "restaurant",
+    "city": "北京",
+    "area": "东城区",
+    "tags": ["本地风味", "家常菜", "中等预算"],
+    "price": 80,
+    "open_time": "11:00-21:30",
+    "coordinate": {
+      "longitude": 116.401,
+      "latitude": 39.915
+    },
+    "description": "提供北京家常菜，适合作为景点游览后的正餐选择。",
+    "suitable_for": ["朋友出游", "家庭游客", "本地风味体验"]
+  },
+  {
+    "place_id": "restaurant_002",
+    "name": "护国寺小吃",
+    "place_type": "restaurant",
+    "city": "北京",
+    "area": "西城区",
+    "tags": ["小吃", "老字号", "经济型"],
+    "price": 45,
+    "open_time": "06:00-21:00",
+    "coordinate": {
+      "longitude": 116.373,
+      "latitude": 39.933
+    },
+    "description": "北京传统小吃店，适合体验豆汁、焦圈等本地饮食。",
+    "suitable_for": ["学生", "小吃爱好者", "预算敏感游客"]
+  },
+  {
+    "place_id": "tj_restaurant_001",
+    "name": "狗不理包子山东路店",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "和平区",
+    "tags": ["本地风味", "老字号", "包子", "中等预算"],
+    "price": 90,
+    "open_time": "10:00-21:00",
+    "coordinate": {
+      "longitude": 117.198932,
+      "latitude": 39.124989
+    },
+    "description": "天津代表性老字号包子店，适合体验天津传统风味。",
+    "suitable_for": ["本地风味体验", "朋友出游", "初次到访游客"]
+  },
+  {
+    "place_id": "tj_restaurant_002",
+    "name": "南市食品街",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "和平区",
+    "tags": ["小吃", "本地风味", "经济型", "老字号"],
+    "price": 50,
+    "open_time": "09:00-21:30",
+    "coordinate": {
+      "longitude": 117.177585,
+      "latitude": 39.132113
+    },
+    "description": "聚合多种天津小吃和传统食品，适合预算友好的本地风味体验。",
+    "suitable_for": ["学生", "小吃爱好者", "预算敏感游客"]
+  },
+  {
+    "place_id": "tj_restaurant_003",
+    "name": "耳朵眼炸糕东北角店",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "南开区",
+    "tags": ["小吃", "老字号", "甜点", "经济型"],
+    "price": 20,
+    "open_time": "08:00-20:30",
+    "coordinate": {
+      "longitude": 117.190112,
+      "latitude": 39.14668
+    },
+    "description": "天津传统小吃炸糕，适合作为古文化街周边的轻量餐饮补充。",
+    "suitable_for": ["学生", "小吃爱好者", "本地风味体验"]
+  }
+]

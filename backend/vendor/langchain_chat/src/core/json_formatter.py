@@ -10,13 +10,12 @@
 """
 
 import json
-import re
 import logging
+import re
 from datetime import datetime
 
-
 # 匹配 API Key 的正则（sk- 开头，后跟至少 10 个字符）
-_API_KEY_PATTERN = re.compile(r'sk-[A-Za-z0-9]{10,}')
+_API_KEY_PATTERN = re.compile(r"sk-[A-Za-z0-9]{10,}")
 
 
 def mask_api_key(text: str) -> str:
@@ -24,7 +23,7 @@ def mask_api_key(text: str) -> str:
 
     示例：sk-abcdef1234567890 → sk-abcdef1...
     """
-    return _API_KEY_PATTERN.sub(lambda m: m.group()[:8] + '...', text)
+    return _API_KEY_PATTERN.sub(lambda m: m.group()[:8] + "...", text)
 
 
 class JsonFormatter(logging.Formatter):
@@ -40,7 +39,9 @@ class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         # 构建日志字典
         log_dict = {
-            "time": datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S"),
+            "time": datetime.fromtimestamp(record.created).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ),
             "level": record.levelname,
             "module": record.name,
             "message": mask_api_key(str(record.msg)),

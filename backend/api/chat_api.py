@@ -55,7 +55,9 @@ def get_session(session_id: str) -> ApiResponse:
     return ok(
         {
             "session": session.model_dump(),
-            "messages": [item.model_dump() for item in store.messages.get(session_id, [])],
+            "messages": [
+                item.model_dump() for item in store.messages.get(session_id, [])
+            ],
             "current_itinerary": None,
             "requirements": store.requirements.get(session_id),
         }
@@ -88,7 +90,8 @@ def extract_requirements(body: RequirementExtractRequest) -> ApiResponse:
     result = workflow.requirement_adapter.extract(
         session_id=body.session_id,
         message=body.message,
-        existing_requirements=body.existing_requirements or store.requirements.get(body.session_id),
+        existing_requirements=body.existing_requirements
+        or store.requirements.get(body.session_id),
     )
     store.update_requirements(body.session_id, result.requirements)
     return ok(result.model_dump())
@@ -121,7 +124,11 @@ def run_travel_workflow(body: WorkflowRequest) -> ApiResponse:
 @router.get("/sessions/{session_id}/agent-traces")
 def get_agent_traces(session_id: str) -> ApiResponse:
     store.ensure_session(session_id)
-    return ok(store.agent_traces.get(session_id, {"trace_id": None, "session_id": session_id, "steps": []}))
+    return ok(
+        store.agent_traces.get(
+            session_id, {"trace_id": None, "session_id": session_id, "steps": []}
+        )
+    )
 
 
 @router.post("/rag/query")

@@ -24,7 +24,9 @@ class RAGService:
             },
         }
 
-    def recommendation_evidence(self, place_name: str, evidence_types: list[str]) -> dict:
+    def recommendation_evidence(
+        self, place_name: str, evidence_types: list[str]
+    ) -> dict:
         return {
             "place_name": place_name,
             "summary": "推荐依据等待 RAG 服务接入。",

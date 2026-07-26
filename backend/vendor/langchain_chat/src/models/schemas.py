@@ -39,12 +39,12 @@ class User(BaseModel):
     对应需求文档 B1 至 B4（用户管理）与第四章 users 表。
     """
 
-    id: int                                              # 主键
-    username: str                                        # 用户名（唯一）
-    default_model: Optional[str] = None                  # 默认模型（可选）
-    default_preset_id: Optional[int] = None              # 默认预设 ID（可选，外键）
-    created_at: datetime = Field(default_factory=_now)   # 创建时间（自动）
-    updated_at: datetime = Field(default_factory=_now)   # 更新时间（自动）
+    id: int  # 主键
+    username: str  # 用户名（唯一）
+    default_model: Optional[str] = None  # 默认模型（可选）
+    default_preset_id: Optional[int] = None  # 默认预设 ID（可选，外键）
+    created_at: datetime = Field(default_factory=_now)  # 创建时间（自动）
+    updated_at: datetime = Field(default_factory=_now)  # 更新时间（自动）
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,13 +57,13 @@ class Session(BaseModel):
     一个会话代表一次连续的多轮对话。
     """
 
-    id: int                                              # 主键
-    user_id: int                                         # 所属用户 ID（外键）
-    title: str                                           # 会话标题
-    model_name: str                                      # 使用的模型名
-    preset_id: Optional[int] = None                      # 使用的预设 ID（可选，外键）
-    total_prompt_tokens: int = 0                         # 累计输入 token
-    total_completion_tokens: int = 0                     # 累计输出 token
+    id: int  # 主键
+    user_id: int  # 所属用户 ID（外键）
+    title: str  # 会话标题
+    model_name: str  # 使用的模型名
+    preset_id: Optional[int] = None  # 使用的预设 ID（可选，外键）
+    total_prompt_tokens: int = 0  # 累计输入 token
+    total_completion_tokens: int = 0  # 累计输出 token
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -83,12 +83,12 @@ class Message(BaseModel):
     一轮对话产生两条消息：一条 human（用户说的），一条 ai（模型回复的）。
     """
 
-    id: int                                              # 主键
-    session_id: int                                      # 所属会话 ID（外键）
-    role: MessageRole                                    # 角色：human/ai/system
-    content: str                                         # 消息内容
-    prompt_tokens: int = 0                               # 本条输入 token 数
-    completion_tokens: int = 0                           # 本条输出 token 数
+    id: int  # 主键
+    session_id: int  # 所属会话 ID（外键）
+    role: MessageRole  # 角色：human/ai/system
+    content: str  # 消息内容
+    prompt_tokens: int = 0  # 本条输入 token 数
+    completion_tokens: int = 0  # 本条输出 token 数
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -102,12 +102,12 @@ class Preset(BaseModel):
     user_id 为 None 表示系统内置预设（所有用户共享）。
     """
 
-    id: int                                              # 主键
-    user_id: Optional[int] = None                        # 所属用户 ID（None=系统内置）
-    name: str                                            # 预设名称
-    description: str = ""                                # 一句话描述
-    system_prompt: str                                   # 系统提示词（定义 AI 角色）
-    is_builtin: bool = False                             # 是否系统内置
+    id: int  # 主键
+    user_id: Optional[int] = None  # 所属用户 ID（None=系统内置）
+    name: str  # 预设名称
+    description: str = ""  # 一句话描述
+    system_prompt: str  # 系统提示词（定义 AI 角色）
+    is_builtin: bool = False  # 是否系统内置
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -122,8 +122,8 @@ class UserConfig(BaseModel):
     用于存储用户个性化偏好（如主题、快捷键等），以键值对形式灵活扩展。
     """
 
-    id: int                                              # 主键
-    user_id: int                                         # 所属用户 ID（外键）
-    key: str                                             # 配置键
-    value: str                                           # 配置值
+    id: int  # 主键
+    user_id: int  # 所属用户 ID（外键）
+    key: str  # 配置键
+    value: str  # 配置值
     updated_at: datetime = Field(default_factory=_now)

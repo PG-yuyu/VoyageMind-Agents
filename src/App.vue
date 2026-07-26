@@ -1,6 +1,16 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { createSession, healthCheck, loginAccount, registerAccount, sendMessage, streamMessage } from './api'
+import TripMap from './components/TripMap.vue'
+import {
+  createSession,
+  fetchMapResourcesByPlaceIds,
+  getMockMapResources,
+  healthCheck,
+  loginAccount,
+  registerAccount,
+  sendMessage,
+  streamMessage
+} from './api'
 
 const pages = [
   { id: 'plan', label: '智能规划' },
@@ -100,6 +110,11 @@ const smartAdjustInput = ref('')
 const smartAdjustPreview = ref(null)
 const appliedAdjustment = ref('')
 const selectedPlace = ref(null)
+const recommendationResult = ref(null)
+const recommendedRoutes = ref([])
+const mapResources = ref(getMockMapResources())
+const mapLoading = ref(false)
+const mapError = ref('')
 const routeStops = computed(() => {
   const items = activeItinerary.value?.items || []
   const stops = [items[1], items[3], items[5], items[items.length - 1]].filter(Boolean)
@@ -260,6 +275,14 @@ const extraDayTemplates = [
 ]
 
 const activeItinerary = computed(() => itineraryDays.value.find((day) => day.day === activeDay.value) || itineraryDays.value[0])
+const fallbackMapPlaceIds = ['tj_hotel_002', 'tj_place_003', 'tj_restaurant_002']
+const amapRouteCount = computed(() => recommendedRoutes.value.filter(isVerifiedAmapRoute).length)
+const mapPlaceIds = computed(() => {
+  const ids = recommendationPlaces(recommendationResult.value)
+    .map((place) => place.place_id)
+    .filter(Boolean)
+  return ids.length ? ids : fallbackMapPlaceIds
+})
 const totalSpent = computed(() => budget.value.reduce((sum, item) => sum + item.value, 0))
 const remainingBudget = computed(() => (requirements.value.total_budget || 0) - totalSpent.value)
 const budgetPercent = computed(() => Math.min(100, Math.round((totalSpent.value / (requirements.value.total_budget || totalSpent.value)) * 100)))
@@ -274,6 +297,7 @@ const preferenceSummary = computed(() => [
 ])
 
 onMounted(async () => {
+  loadMapResources()
   try {
     await healthCheck()
     const session = await createSession()
@@ -283,6 +307,24 @@ onMounted(async () => {
     sessionId.value = `local_${Date.now()}`
   }
 })
+
+async function loadMapResources() {
+  mapLoading.value = true
+  try {
+    const payload = await fetchMapResourcesByPlaceIds(mapPlaceIds.value)
+    mapResources.value = payload.resources?.length
+      ? mergeMapResourceDetails(payload.resources, recommendationResult.value)
+      : fallbackRecommendationResources()
+    mapError.value = payload.warnings?.length ? payload.warnings.join('；') : ''
+  } catch (error) {
+    mapResources.value = fallbackRecommendationResources()
+    mapError.value = recommendationResult.value
+      ? '地图资源接口暂不可用，当前使用推荐结果中的坐标展示。'
+      : '地图接口暂不可用，当前显示本地演示推荐地点。'
+  } finally {
+    mapLoading.value = false
+  }
+}
 
 async function sendPrompt(targetPage = 'trip') {
   const text = prompt.value.trim()
@@ -306,14 +348,15 @@ async function sendPrompt(targetPage = 'trip') {
       const response = await sendMessage(sessionId.value || `local_${Date.now()}`, text)
       messages.value.push({ role: 'assistant', text: response.reply })
       requirements.value = response.requirements || requirements.value
+      applyRecommendationPayload(response)
       syncItineraryDays(text)
       hasPlan.value = true
       saveCurrentTripHistory()
     }
     planningProgress.value = [
       { title: '理解你的需求', desc: '已识别目的地、天数、预算和兴趣偏好', status: 'done' },
-      { title: '筛选推荐地点', desc: '已准备调用景点、餐厅和住宿推荐', status: 'done' },
-      { title: '安排每日路线', desc: '等待行程规划模块生成完整方案', status: 'active' },
+      { title: '筛选推荐地点', desc: recommendationResult.value ? '已调用旅游资源推荐模块并返回地点结果' : '已准备调用景点、餐厅和住宿推荐', status: 'done' },
+      { title: '安排每日路线', desc: routeProgressText(), status: 'active' },
       { title: '检查预算与强度', desc: '预算、步行和开放时间会在生成后校验', status: 'pending' }
     ]
     activePage.value = targetPage
@@ -333,6 +376,107 @@ async function sendPrompt(targetPage = 'trip') {
   } finally {
     planning.value = false
   }
+}
+
+function applyRecommendationPayload(response) {
+  recommendationResult.value = response.recommendation_result || null
+  recommendedRoutes.value = Array.isArray(response.routes)
+    ? response.routes
+    : Array.isArray(response.recommendation_result?.routes)
+      ? response.recommendation_result.routes
+      : []
+
+  if (response.map_resources?.resources?.length) {
+    mapResources.value = mergeMapResourceDetails(
+      response.map_resources.resources,
+      recommendationResult.value
+    )
+    mapError.value = response.map_resources.warnings?.length
+      ? response.map_resources.warnings.join('；')
+      : ''
+    return
+  }
+
+  const resources = resourcesFromRecommendationResult(recommendationResult.value)
+  if (resources.length) {
+    mapResources.value = resources
+    mapError.value = '地图资源接口暂未返回，当前使用推荐结果中的坐标展示。'
+  }
+}
+
+function fallbackRecommendationResources() {
+  const resources = resourcesFromRecommendationResult(recommendationResult.value)
+  return resources.length ? resources : getMockMapResources()
+}
+
+function mergeMapResourceDetails(resources = [], result = null) {
+  const placeMap = new Map(
+    recommendationPlaces(result).map((place) => [place.place_id, place])
+  )
+  return resources.map((resource) => {
+    const place = placeMap.get(resource.place_id)
+    return normalizeMapResource({
+      ...resource,
+      price: resource.price ?? place?.price ?? null,
+      open_time: resource.open_time ?? place?.open_time ?? '',
+      tags: resource.tags?.length ? resource.tags : [...(place?.tags || [])],
+      short_description: resource.short_description || place?.description || '暂无地点摘要',
+      recommend_reason: resource.recommend_reason || result?.policy_summary || '推荐资源适合本次旅行需求。'
+    })
+  })
+}
+
+function resourcesFromRecommendationResult(result) {
+  return recommendationPlaces(result).map((place) => normalizeMapResource({
+    place_id: place.place_id,
+    name: place.name,
+    place_type: place.place_type,
+    longitude: place.longitude ?? place.coordinate?.longitude,
+    latitude: place.latitude ?? place.coordinate?.latitude,
+    address: place.address || `${place.city || ''}${place.area || ''}${place.name || ''}`,
+    short_description: place.short_description || place.description || '暂无地点摘要',
+    recommend_reason: result?.policy_summary || '推荐资源适合本次旅行需求。',
+    verified: place.verified !== false,
+    warning: place.warning || null,
+    price: place.price ?? null,
+    open_time: place.open_time || '',
+    tags: Array.isArray(place.tags) ? [...place.tags] : []
+  }))
+}
+
+function recommendationPlaces(result) {
+  if (!result) return []
+  return [
+    ...(Array.isArray(result.hotels) ? result.hotels : []),
+    ...(Array.isArray(result.attractions) ? result.attractions : []),
+    ...(Array.isArray(result.restaurants) ? result.restaurants : [])
+  ]
+}
+
+function normalizeMapResource(resource) {
+  const longitude = Number(resource.longitude)
+  const latitude = Number(resource.latitude)
+  return {
+    ...resource,
+    longitude: Number.isFinite(longitude) ? longitude : null,
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    verified: resource.verified !== false,
+    tags: Array.isArray(resource.tags) ? [...resource.tags] : []
+  }
+}
+
+function routeProgressText() {
+  if (amapRouteCount.value) {
+    return `已返回 ${amapRouteCount.value} 条高德实际路线，等待成员三生成完整行程`
+  }
+  if (recommendedRoutes.value.length) {
+    return '已返回路线事实，但尚未通过高德验证，地图不会按真实路线绘制'
+  }
+  return '等待行程规划模块生成完整方案'
+}
+
+function isVerifiedAmapRoute(route) {
+  return route?.source === 'amap' && route?.verified === true && Array.isArray(route.polyline) && route.polyline.length >= 2
 }
 
 function fillPrompt(text, page = activePage.value) {
@@ -915,32 +1059,29 @@ async function submitAuth() {
           <div>
             <p class="eyebrow">Route Map</p>
             <h1>路线地图</h1>
-            <p>{{ hasPlan ? '展示每日地点顺序、路线和预计耗时，后续可接入高德地图组件。' : '生成行程后，这里会展示每日地点顺序、路线节点和预计交通耗时。' }}</p>
+            <p>{{ hasPlan ? `展示推荐地点、地图 Marker 和 ${amapRouteCount} 条高德实际路线。` : '生成行程后，这里会展示推荐地点、路线节点和预计交通耗时。' }}</p>
           </div>
+          <button class="primary" :disabled="mapLoading" @click="loadMapResources">
+            {{ mapLoading ? '加载中' : '刷新地图资源' }}
+          </button>
         </div>
+
         <template v-if="hasPlan">
-        <section class="panel map-panel">
-          <div class="map-visual">
-            <span class="pin hotel">酒店</span>
-            <span class="pin palace">五大道</span>
-            <span class="pin food">午餐</span>
-            <span class="pin street">海河</span>
-            <i class="route r1"></i>
-            <i class="route r2"></i>
-            <i class="route r3"></i>
-          </div>
-          <div class="route-list">
-            <article v-for="item in activeItinerary.items" :key="`route-${item.time}`">
-              <strong>{{ item.title }}</strong>
-              <span>{{ item.time }} · {{ item.tag }}</span>
-            </article>
-          </div>
-        </section>
+          <section class="panel map-panel">
+            <TripMap
+              :resources="mapResources"
+              :routes="recommendedRoutes"
+              :loading="mapLoading"
+              :error="mapError"
+              @retry="loadMapResources"
+            />
+          </section>
         </template>
+
         <section v-else class="empty-state compact-empty">
           <p class="eyebrow">No Route</p>
           <h1>暂无路线</h1>
-          <p>先生成天津旅行方案，路线图会在这里自动整理成可查看的节点顺序。</p>
+          <p>先生成天津旅行方案，路线图会在这里自动整理成可查看的推荐地点和路线。</p>
           <button class="primary" @click="activePage = 'plan'">先去规划</button>
         </section>
       </section>

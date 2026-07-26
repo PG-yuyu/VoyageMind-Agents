@@ -2,9 +2,19 @@ import re
 
 from backend.schemas import Assumption, RequirementExtractionResult, TravelRequest
 
-
 CITY_NAMES = ["天津"]
-INTEREST_WORDS = ["近代建筑", "博物馆", "美食", "购物", "亲子", "夜景", "海河", "老街", "民俗", "滨海"]
+INTEREST_WORDS = [
+    "近代建筑",
+    "博物馆",
+    "美食",
+    "购物",
+    "亲子",
+    "夜景",
+    "海河",
+    "老街",
+    "民俗",
+    "滨海",
+]
 FOOD_WORDS = ["天津菜", "清淡", "素食", "煎饼果子", "锅巴菜", "熟梨糕", "八珍豆腐"]
 
 
@@ -15,7 +25,11 @@ class RequirementService:
         message: str,
         existing: TravelRequest | None = None,
     ) -> RequirementExtractionResult:
-        request = existing.model_copy(deep=True) if existing else TravelRequest(session_id=session_id)
+        request = (
+            existing.model_copy(deep=True)
+            if existing
+            else TravelRequest(session_id=session_id)
+        )
         request.session_id = session_id
 
         city = next((name for name in CITY_NAMES if name in message), None)
@@ -39,7 +53,9 @@ class RequirementService:
 
         budget_match = re.search(r"预算\s*(\d+)|(\d+)\s*元", message)
         if budget_match:
-            request.total_budget = int(next(group for group in budget_match.groups() if group))
+            request.total_budget = int(
+                next(group for group in budget_match.groups() if group)
+            )
 
         interests = [word for word in INTEREST_WORDS if word in message]
         if interests:
@@ -50,8 +66,19 @@ class RequirementService:
             request.food_preferences = sorted(set(request.food_preferences + foods))
 
         must_visit = []
-        for name in ["五大道", "五大道文化旅游区", "天津之眼", "古文化街", "瓷房子", "意式风情区", "天津博物馆", "海河"]:
-            if name in message and any(prefix in message for prefix in ["必去", "一定去", "想去", "喜欢"]):
+        for name in [
+            "五大道",
+            "五大道文化旅游区",
+            "天津之眼",
+            "古文化街",
+            "瓷房子",
+            "意式风情区",
+            "天津博物馆",
+            "海河",
+        ]:
+            if name in message and any(
+                prefix in message for prefix in ["必去", "一定去", "想去", "喜欢"]
+            ):
                 must_visit.append("五大道文化旅游区" if name == "五大道" else name)
         if must_visit:
             request.must_visit = sorted(set(request.must_visit + must_visit))
@@ -61,8 +88,16 @@ class RequirementService:
             request.walking_limit_m = int(walk_match.group(1)) * 1000
 
         assumptions = [
-            Assumption(field="transport_modes", value=request.transport_modes, reason="用户未指定交通方式，默认步行加公共交通"),
-            Assumption(field="daily_start_time", value=request.daily_start_time, reason="用户未指定每日出发时间，使用默认 09:00"),
+            Assumption(
+                field="transport_modes",
+                value=request.transport_modes,
+                reason="用户未指定交通方式，默认步行加公共交通",
+            ),
+            Assumption(
+                field="daily_start_time",
+                value=request.daily_start_time,
+                reason="用户未指定每日出发时间，使用默认 09:00",
+            ),
         ]
 
         missing_fields = []

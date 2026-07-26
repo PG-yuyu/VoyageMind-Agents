@@ -44,8 +44,13 @@ class FileBackend(StorageBackend):
         self._messages_file = self.base_path / "messages.json"
         self._presets_file = self.base_path / "presets.json"
         self._configs_file = self.base_path / "user_configs.json"
-        for f in [self._users_file, self._sessions_file, self._messages_file,
-                  self._presets_file, self._configs_file]:
+        for f in [
+            self._users_file,
+            self._sessions_file,
+            self._messages_file,
+            self._presets_file,
+            self._configs_file,
+        ]:
             if not f.exists():
                 self._write_json(f, [])
 
@@ -85,11 +90,16 @@ class FileBackend(StorageBackend):
     async def create_user(self, user: User) -> User:
         records = self._read_json(self._users_file)
         user.id = self._next_id(records)
-        records.append({
-            "id": user.id, "username": user.username,
-            "default_model": user.default_model, "default_preset_id": user.default_preset_id,
-            "created_at": self._dt_to_str(user.created_at), "updated_at": self._dt_to_str(user.updated_at),
-        })
+        records.append(
+            {
+                "id": user.id,
+                "username": user.username,
+                "default_model": user.default_model,
+                "default_preset_id": user.default_preset_id,
+                "created_at": self._dt_to_str(user.created_at),
+                "updated_at": self._dt_to_str(user.updated_at),
+            }
+        )
         self._write_json(self._users_file, records)
         return user
 
@@ -139,8 +149,10 @@ class FileBackend(StorageBackend):
     @staticmethod
     def _row_to_user(r: dict) -> User:
         return User(
-            id=r["id"], username=r["username"],
-            default_model=r.get("default_model"), default_preset_id=r.get("default_preset_id"),
+            id=r["id"],
+            username=r["username"],
+            default_model=r.get("default_model"),
+            default_preset_id=r.get("default_preset_id"),
             created_at=FileBackend._str_to_dt(r["created_at"]),
             updated_at=FileBackend._str_to_dt(r["updated_at"]),
         )
@@ -150,13 +162,19 @@ class FileBackend(StorageBackend):
     async def create_session(self, session: Session) -> Session:
         records = self._read_json(self._sessions_file)
         session.id = self._next_id(records)
-        records.append({
-            "id": session.id, "user_id": session.user_id, "title": session.title,
-            "model_name": session.model_name, "preset_id": session.preset_id,
-            "total_prompt_tokens": session.total_prompt_tokens,
-            "total_completion_tokens": session.total_completion_tokens,
-            "created_at": self._dt_to_str(session.created_at), "updated_at": self._dt_to_str(session.updated_at),
-        })
+        records.append(
+            {
+                "id": session.id,
+                "user_id": session.user_id,
+                "title": session.title,
+                "model_name": session.model_name,
+                "preset_id": session.preset_id,
+                "total_prompt_tokens": session.total_prompt_tokens,
+                "total_completion_tokens": session.total_completion_tokens,
+                "created_at": self._dt_to_str(session.created_at),
+                "updated_at": self._dt_to_str(session.updated_at),
+            }
+        )
         self._write_json(self._sessions_file, records)
         return session
 
@@ -167,12 +185,17 @@ class FileBackend(StorageBackend):
                 return self._row_to_session(r)
         return None
 
-    async def list_sessions(self, user_id: int, limit: int = 0, offset: int = 0) -> list[Session]:
+    async def list_sessions(
+        self, user_id: int, limit: int = 0, offset: int = 0
+    ) -> list[Session]:
         records = self._read_json(self._sessions_file)
         filtered = [r for r in records if r["user_id"] == user_id]
-        result = [self._row_to_session(r) for r in sorted(filtered, key=lambda x: x["id"], reverse=True)]
+        result = [
+            self._row_to_session(r)
+            for r in sorted(filtered, key=lambda x: x["id"], reverse=True)
+        ]
         if limit > 0:
-            return result[offset:offset + limit]
+            return result[offset : offset + limit]
         return result
 
     async def update_session(self, session: Session) -> None:
@@ -210,8 +233,11 @@ class FileBackend(StorageBackend):
     @staticmethod
     def _row_to_session(r: dict) -> Session:
         return Session(
-            id=r["id"], user_id=r["user_id"], title=r["title"],
-            model_name=r["model_name"], preset_id=r.get("preset_id"),
+            id=r["id"],
+            user_id=r["user_id"],
+            title=r["title"],
+            model_name=r["model_name"],
+            preset_id=r.get("preset_id"),
             total_prompt_tokens=r.get("total_prompt_tokens", 0),
             total_completion_tokens=r.get("total_completion_tokens", 0),
             created_at=FileBackend._str_to_dt(r["created_at"]),
@@ -223,19 +249,26 @@ class FileBackend(StorageBackend):
     async def add_message(self, message: Message) -> Message:
         records = self._read_json(self._messages_file)
         message.id = self._next_id(records)
-        records.append({
-            "id": message.id, "session_id": message.session_id, "role": message.role,
-            "content": message.content, "prompt_tokens": message.prompt_tokens,
-            "completion_tokens": message.completion_tokens,
-            "created_at": self._dt_to_str(message.created_at),
-        })
+        records.append(
+            {
+                "id": message.id,
+                "session_id": message.session_id,
+                "role": message.role,
+                "content": message.content,
+                "prompt_tokens": message.prompt_tokens,
+                "completion_tokens": message.completion_tokens,
+                "created_at": self._dt_to_str(message.created_at),
+            }
+        )
         self._write_json(self._messages_file, records)
         return message
 
     async def list_messages(self, session_id: int) -> list[Message]:
         records = self._read_json(self._messages_file)
         filtered = [r for r in records if r["session_id"] == session_id]
-        return [self._row_to_message(r) for r in sorted(filtered, key=lambda x: x["id"])]
+        return [
+            self._row_to_message(r) for r in sorted(filtered, key=lambda x: x["id"])
+        ]
 
     async def search_messages(self, user_id: int, keyword: str) -> list[Message]:
         sessions = self._read_json(self._sessions_file)
@@ -243,15 +276,21 @@ class FileBackend(StorageBackend):
         records = self._read_json(self._messages_file)
         result = []
         for r in records:
-            if r["session_id"] in session_ids and keyword.lower() in r["content"].lower():
+            if (
+                r["session_id"] in session_ids
+                and keyword.lower() in r["content"].lower()
+            ):
                 result.append(r)
         return [self._row_to_message(r) for r in sorted(result, key=lambda x: x["id"])]
 
     @staticmethod
     def _row_to_message(r: dict) -> Message:
         return Message(
-            id=r["id"], session_id=r["session_id"], role=r["role"],
-            content=r["content"], prompt_tokens=r.get("prompt_tokens", 0),
+            id=r["id"],
+            session_id=r["session_id"],
+            role=r["role"],
+            content=r["content"],
+            prompt_tokens=r.get("prompt_tokens", 0),
             completion_tokens=r.get("completion_tokens", 0),
             created_at=FileBackend._str_to_dt(r["created_at"]),
         )
@@ -269,12 +308,18 @@ class FileBackend(StorageBackend):
         records = self._read_json(self._presets_file)
         if not preset.id:
             preset.id = self._next_id(records)
-            records.append({
-                "id": preset.id, "user_id": preset.user_id, "name": preset.name,
-                "description": preset.description, "system_prompt": preset.system_prompt,
-                "is_builtin": preset.is_builtin,
-                "created_at": self._dt_to_str(preset.created_at), "updated_at": self._dt_to_str(preset.updated_at),
-            })
+            records.append(
+                {
+                    "id": preset.id,
+                    "user_id": preset.user_id,
+                    "name": preset.name,
+                    "description": preset.description,
+                    "system_prompt": preset.system_prompt,
+                    "is_builtin": preset.is_builtin,
+                    "created_at": self._dt_to_str(preset.created_at),
+                    "updated_at": self._dt_to_str(preset.updated_at),
+                }
+            )
         else:
             for r in records:
                 if r["id"] == preset.id:
@@ -289,7 +334,11 @@ class FileBackend(StorageBackend):
 
     async def list_presets(self, user_id: int) -> list[Preset]:
         records = self._read_json(self._presets_file)
-        filtered = [r for r in records if r.get("user_id") is None or r.get("user_id") == user_id]
+        filtered = [
+            r
+            for r in records
+            if r.get("user_id") is None or r.get("user_id") == user_id
+        ]
         return [self._row_to_preset(r) for r in sorted(filtered, key=lambda x: x["id"])]
 
     async def delete_preset(self, preset_id: int) -> None:
@@ -300,8 +349,11 @@ class FileBackend(StorageBackend):
     @staticmethod
     def _row_to_preset(r: dict) -> Preset:
         return Preset(
-            id=r["id"], user_id=r.get("user_id"), name=r["name"],
-            description=r.get("description", ""), system_prompt=r["system_prompt"],
+            id=r["id"],
+            user_id=r.get("user_id"),
+            name=r["name"],
+            description=r.get("description", ""),
+            system_prompt=r["system_prompt"],
             is_builtin=r.get("is_builtin", False),
             created_at=FileBackend._str_to_dt(r["created_at"]),
             updated_at=FileBackend._str_to_dt(r["updated_at"]),
@@ -325,8 +377,13 @@ class FileBackend(StorageBackend):
                 self._write_json(self._configs_file, records)
                 return
         config.id = self._next_id(records)
-        records.append({
-            "id": config.id, "user_id": config.user_id, "key": config.key,
-            "value": config.value, "updated_at": self._dt_to_str(config.updated_at),
-        })
+        records.append(
+            {
+                "id": config.id,
+                "user_id": config.user_id,
+                "key": config.key,
+                "value": config.value,
+                "updated_at": self._dt_to_str(config.updated_at),
+            }
+        )
         self._write_json(self._configs_file, records)

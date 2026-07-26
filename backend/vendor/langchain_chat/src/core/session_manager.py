@@ -8,13 +8,14 @@
     - 消息加载时，把数据库的 Message 转成 LangChain 的 BaseMessage（供 ChatEngine 使用）。
     - 标题生成用 ChatEngine（LLM 摘要），失败时兜底截取前 30 字符。
 """
+
 import logging
+
 logger = logging.getLogger(__name__)
 from typing import Optional
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-
 from core.config_manager import AppConfig
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from models.schemas import Message, Session
 from storage.base import StorageBackend
 
@@ -162,7 +163,9 @@ class SessionManager:
 
     # ── 会话管理（Step 8 新增）──────────────────────────────────────────
 
-    async def list_sessions(self, user_id: int, limit: int = 0, offset: int = 0) -> list[Session]:
+    async def list_sessions(
+        self, user_id: int, limit: int = 0, offset: int = 0
+    ) -> list[Session]:
         """列出指定用户的会话（C3 会话列表，支持分页）。
 
         按更新时间倒序排列（最近更新的在最前面）。
@@ -291,7 +294,9 @@ class SessionManager:
         # 构建 Markdown 内容
         lines = []
         lines.append(f"# {session.title}\n")
-        lines.append(f"> 模型: {session.model_name} | 导出时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+        lines.append(
+            f"> 模型: {session.model_name} | 导出时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+        )
         lines.append("---\n")
 
         for msg in messages:
@@ -304,7 +309,9 @@ class SessionManager:
 
         lines.append("---\n")
         total_tokens = session.total_prompt_tokens + session.total_completion_tokens
-        lines.append(f"> 共 {len(messages)} 条消息 | Token: 输入 {session.total_prompt_tokens}，输出 {session.total_completion_tokens}，总计 {total_tokens}\n")
+        lines.append(
+            f"> 共 {len(messages)} 条消息 | Token: 输入 {session.total_prompt_tokens}，输出 {session.total_completion_tokens}，总计 {total_tokens}\n"
+        )
 
         content = "\n".join(lines)
 

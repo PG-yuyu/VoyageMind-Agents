@@ -1,7 +1,12 @@
 from fastapi import APIRouter
 
-from backend.schemas import ApiResponse, AuthLoginRequest, AuthRegisterRequest, AuthUser, new_id
-
+from backend.schemas import (
+    ApiResponse,
+    AuthLoginRequest,
+    AuthRegisterRequest,
+    AuthUser,
+    new_id,
+)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 

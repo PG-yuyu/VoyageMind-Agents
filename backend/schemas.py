@@ -14,7 +14,9 @@ def new_id(prefix: str) -> str:
 
 
 IntentType = Literal["create_trip", "modify_trip", "travel_qa"]
-SessionStatus = Literal["active", "waiting_for_user", "planning", "completed", "failed", "closed"]
+SessionStatus = Literal[
+    "active", "waiting_for_user", "planning", "completed", "failed", "closed"
+]
 
 
 class ApiResponse(BaseModel):
@@ -123,6 +125,9 @@ class ChatResponse(BaseModel):
     workflow_status: str
     requirements: TravelRequest | None = None
     itinerary: dict | None = None
+    recommendation_result: dict | None = None
+    map_resources: dict | None = None
+    routes: list[dict] | None = None
     agent_trace: dict | None = None
 
 

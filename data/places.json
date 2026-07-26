@@ -1,0 +1,130 @@
+[
+  {
+    "place_id": "place_001",
+    "name": "故宫博物院",
+    "place_type": "attraction",
+    "city": "北京",
+    "area": "东城区",
+    "tags": ["历史文化", "博物馆", "必看景点"],
+    "price": 60,
+    "open_time": "08:30-17:00",
+    "coordinate": {
+      "longitude": 116.397,
+      "latitude": 39.916
+    },
+    "description": "明清皇家宫殿建筑群，适合了解北京历史文化。",
+    "suitable_for": ["历史文化爱好者", "学生", "初次到访游客"]
+  },
+  {
+    "place_id": "place_002",
+    "name": "颐和园",
+    "place_type": "attraction",
+    "city": "北京",
+    "area": "海淀区",
+    "tags": ["园林", "湖景", "世界遗产"],
+    "price": 30,
+    "open_time": "06:30-18:00",
+    "coordinate": {
+      "longitude": 116.273,
+      "latitude": 39.999
+    },
+    "description": "以昆明湖、万寿山为核心的皇家园林，适合半日游。",
+    "suitable_for": ["家庭游客", "摄影爱好者", "文化游游客"]
+  },
+  {
+    "place_id": "place_003",
+    "name": "南锣鼓巷",
+    "place_type": "attraction",
+    "city": "北京",
+    "area": "东城区",
+    "tags": ["胡同", "城市漫步", "本地生活"],
+    "price": 0,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 116.404,
+      "latitude": 39.937
+    },
+    "description": "北京胡同街区，适合体验城市街巷和轻量夜游。",
+    "suitable_for": ["学生", "朋友出游", "城市漫步游客"]
+  },
+  {
+    "place_id": "tj_place_001",
+    "name": "天津古文化街",
+    "place_type": "attraction",
+    "city": "天津",
+    "area": "南开区",
+    "tags": ["历史文化", "老街", "民俗文化", "本地生活"],
+    "price": 0,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 117.192281,
+      "latitude": 39.143853
+    },
+    "description": "海河西岸的传统文化街区，适合体验天津民俗、老字号和城市历史。",
+    "suitable_for": ["历史文化爱好者", "初次到访游客", "家庭游客"]
+  },
+  {
+    "place_id": "tj_place_002",
+    "name": "天津之眼",
+    "place_type": "attraction",
+    "city": "天津",
+    "area": "红桥区",
+    "tags": ["城市地标", "夜景", "海河", "情侣出游"],
+    "price": 80,
+    "open_time": "09:30-21:30",
+    "coordinate": {
+      "longitude": 117.18041,
+      "latitude": 39.15338
+    },
+    "description": "建在桥上的摩天轮，是天津海河沿线代表性城市地标，适合夜景体验。",
+    "suitable_for": ["情侣出游", "朋友出游", "初次到访游客"]
+  },
+  {
+    "place_id": "tj_place_003",
+    "name": "五大道文化旅游区",
+    "place_type": "attraction",
+    "city": "天津",
+    "area": "和平区",
+    "tags": ["历史文化", "城市漫步", "建筑", "拍照"],
+    "price": 0,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 117.1967,
+      "latitude": 39.1095
+    },
+    "description": "以近代建筑和街区漫步为特色，适合轻松了解天津城市风貌。",
+    "suitable_for": ["历史文化爱好者", "城市漫步游客", "摄影爱好者"]
+  },
+  {
+    "place_id": "tj_place_004",
+    "name": "津湾广场",
+    "place_type": "attraction",
+    "city": "天津",
+    "area": "和平区",
+    "tags": ["城市地标", "夜景", "海河", "交通方便"],
+    "price": 0,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 117.20322,
+      "latitude": 39.13003
+    },
+    "description": "位于海河沿岸、靠近天津站，适合夜景拍照和轻量城市漫步。",
+    "suitable_for": ["初次到访游客", "朋友出游", "城市漫步游客"]
+  },
+  {
+    "place_id": "tj_place_005",
+    "name": "国家海洋博物馆",
+    "place_type": "attraction",
+    "city": "天津",
+    "area": "滨海新区",
+    "tags": ["博物馆", "亲子友好", "科普", "海洋文化"],
+    "price": 0,
+    "open_time": "09:00-17:00",
+    "coordinate": {
+      "longitude": 117.795688,
+      "latitude": 39.106026
+    },
+    "description": "滨海新区的大型海洋主题博物馆，适合亲子和科普主题旅行。",
+    "suitable_for": ["家庭游客", "亲子游客", "科普爱好者"]
+  }
+]

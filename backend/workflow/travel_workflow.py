@@ -17,7 +17,9 @@ class TravelWorkflow:
     def __init__(self) -> None:
         self.chatbot_service = ChatbotService()
         self.rag_service = RAGService()
-        self.coordinator_agent = CoordinatorAgent(self.chatbot_service, self.rag_service)
+        self.coordinator_agent = CoordinatorAgent(
+            self.chatbot_service, self.rag_service
+        )
         self.intent_agent = self.coordinator_agent.intent_agent
         self.requirement_adapter = self.coordinator_agent.requirement_adapter
         self.workflow_service = WorkflowService()

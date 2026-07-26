@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Optional
 
 import aiosqlite
-
 from models.schemas import Message, Preset, Session, User, UserConfig
 from storage.base import StorageBackend
 
@@ -132,8 +131,13 @@ class SQLiteBackend(StorageBackend):
         cursor = await self._conn.execute(
             """INSERT INTO users (username, default_model, default_preset_id, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?)""",
-            (user.username, user.default_model, user.default_preset_id,
-             self._dt_to_str(user.created_at), self._dt_to_str(user.updated_at)),
+            (
+                user.username,
+                user.default_model,
+                user.default_preset_id,
+                self._dt_to_str(user.created_at),
+                self._dt_to_str(user.updated_at),
+            ),
         )
         await self._conn.commit()
         user.id = cursor.lastrowid
@@ -157,21 +161,29 @@ class SQLiteBackend(StorageBackend):
         """删除用户（关联数据靠 ON DELETE CASCADE 自动清理）。"""
         await self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
         await self._conn.commit()
+
     async def update_user(self, user: User) -> None:
         """更新用户信息。"""
         await self._conn.execute(
             """UPDATE users SET username=?, default_model=?, default_preset_id=?,
                updated_at=? WHERE id=?""",
-            (user.username, user.default_model, user.default_preset_id,
-             self._dt_to_str(user.updated_at), user.id),
+            (
+                user.username,
+                user.default_model,
+                user.default_preset_id,
+                self._dt_to_str(user.updated_at),
+                user.id,
+            ),
         )
         await self._conn.commit()
 
     @staticmethod
     def _row_to_user(row: aiosqlite.Row) -> User:
         return User(
-            id=row["id"], username=row["username"],
-            default_model=row["default_model"], default_preset_id=row["default_preset_id"],
+            id=row["id"],
+            username=row["username"],
+            default_model=row["default_model"],
+            default_preset_id=row["default_preset_id"],
             created_at=SQLiteBackend._str_to_dt(row["created_at"]),
             updated_at=SQLiteBackend._str_to_dt(row["updated_at"]),
         )
@@ -183,9 +195,16 @@ class SQLiteBackend(StorageBackend):
             """INSERT INTO sessions (user_id, title, model_name, preset_id,
                total_prompt_tokens, total_completion_tokens, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (session.user_id, session.title, session.model_name, session.preset_id,
-             session.total_prompt_tokens, session.total_completion_tokens,
-             self._dt_to_str(session.created_at), self._dt_to_str(session.updated_at)),
+            (
+                session.user_id,
+                session.title,
+                session.model_name,
+                session.preset_id,
+                session.total_prompt_tokens,
+                session.total_completion_tokens,
+                self._dt_to_str(session.created_at),
+                self._dt_to_str(session.updated_at),
+            ),
         )
         await self._conn.commit()
         session.id = cursor.lastrowid
@@ -198,7 +217,9 @@ class SQLiteBackend(StorageBackend):
             row = await cursor.fetchone()
             return self._row_to_session(row) if row else None
 
-    async def list_sessions(self, user_id: int, limit: int = 0, offset: int = 0) -> list[Session]:
+    async def list_sessions(
+        self, user_id: int, limit: int = 0, offset: int = 0
+    ) -> list[Session]:
         sql = "SELECT * FROM sessions WHERE user_id = ? ORDER BY id DESC"
         params: list = [user_id]
         if limit > 0:
@@ -214,9 +235,15 @@ class SQLiteBackend(StorageBackend):
         await self._conn.execute(
             """UPDATE sessions SET title=?, model_name=?, preset_id=?,
                total_prompt_tokens=?, total_completion_tokens=?, updated_at=? WHERE id=?""",
-            (session.title, session.model_name, session.preset_id,
-             session.total_prompt_tokens, session.total_completion_tokens,
-             self._dt_to_str(session.updated_at), session.id),
+            (
+                session.title,
+                session.model_name,
+                session.preset_id,
+                session.total_prompt_tokens,
+                session.total_completion_tokens,
+                self._dt_to_str(session.updated_at),
+                session.id,
+            ),
         )
         await self._conn.commit()
 
@@ -232,8 +259,11 @@ class SQLiteBackend(StorageBackend):
     @staticmethod
     def _row_to_session(row: aiosqlite.Row) -> Session:
         return Session(
-            id=row["id"], user_id=row["user_id"], title=row["title"],
-            model_name=row["model_name"], preset_id=row["preset_id"],
+            id=row["id"],
+            user_id=row["user_id"],
+            title=row["title"],
+            model_name=row["model_name"],
+            preset_id=row["preset_id"],
             total_prompt_tokens=row["total_prompt_tokens"],
             total_completion_tokens=row["total_completion_tokens"],
             created_at=SQLiteBackend._str_to_dt(row["created_at"]),
@@ -247,9 +277,14 @@ class SQLiteBackend(StorageBackend):
             """INSERT INTO messages (session_id, role, content, prompt_tokens,
                completion_tokens, created_at)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (message.session_id, message.role, message.content,
-             message.prompt_tokens, message.completion_tokens,
-             self._dt_to_str(message.created_at)),
+            (
+                message.session_id,
+                message.role,
+                message.content,
+                message.prompt_tokens,
+                message.completion_tokens,
+                self._dt_to_str(message.created_at),
+            ),
         )
         await self._conn.commit()
         message.id = cursor.lastrowid
@@ -277,8 +312,11 @@ class SQLiteBackend(StorageBackend):
     @staticmethod
     def _row_to_message(row: aiosqlite.Row) -> Message:
         return Message(
-            id=row["id"], session_id=row["session_id"], role=row["role"],
-            content=row["content"], prompt_tokens=row["prompt_tokens"],
+            id=row["id"],
+            session_id=row["session_id"],
+            role=row["role"],
+            content=row["content"],
+            prompt_tokens=row["prompt_tokens"],
             completion_tokens=row["completion_tokens"],
             created_at=SQLiteBackend._str_to_dt(row["created_at"]),
         )
@@ -301,9 +339,15 @@ class SQLiteBackend(StorageBackend):
                 """INSERT INTO presets (user_id, name, description, system_prompt,
                    is_builtin, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (preset.user_id, preset.name, preset.description, preset.system_prompt,
-                 1 if preset.is_builtin else 0,
-                 self._dt_to_str(preset.created_at), self._dt_to_str(preset.updated_at)),
+                (
+                    preset.user_id,
+                    preset.name,
+                    preset.description,
+                    preset.system_prompt,
+                    1 if preset.is_builtin else 0,
+                    self._dt_to_str(preset.created_at),
+                    self._dt_to_str(preset.updated_at),
+                ),
             )
             await self._conn.commit()
             preset.id = cursor.lastrowid
@@ -312,9 +356,14 @@ class SQLiteBackend(StorageBackend):
             await self._conn.execute(
                 """UPDATE presets SET name=?, description=?, system_prompt=?,
                    is_builtin=?, updated_at=? WHERE id=?""",
-                (preset.name, preset.description, preset.system_prompt,
-                 1 if preset.is_builtin else 0,
-                 self._dt_to_str(preset.updated_at), preset.id),
+                (
+                    preset.name,
+                    preset.description,
+                    preset.system_prompt,
+                    1 if preset.is_builtin else 0,
+                    self._dt_to_str(preset.updated_at),
+                    preset.id,
+                ),
             )
             await self._conn.commit()
         return preset
@@ -335,8 +384,11 @@ class SQLiteBackend(StorageBackend):
     @staticmethod
     def _row_to_preset(row: aiosqlite.Row) -> Preset:
         return Preset(
-            id=row["id"], user_id=row["user_id"], name=row["name"],
-            description=row["description"], system_prompt=row["system_prompt"],
+            id=row["id"],
+            user_id=row["user_id"],
+            name=row["name"],
+            description=row["description"],
+            system_prompt=row["system_prompt"],
             is_builtin=bool(row["is_builtin"]),
             created_at=SQLiteBackend._str_to_dt(row["created_at"]),
             updated_at=SQLiteBackend._str_to_dt(row["updated_at"]),

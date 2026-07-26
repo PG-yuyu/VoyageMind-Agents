@@ -17,6 +17,17 @@ app:
 # 每个服务商有自己的 base_url 和 api_key（Key 存 .env，这里只写变量名）。
 # 以后增加模型/服务商的操作见 Step 10 文档第三章 3.1 节。
 providers:
+  - name: DeepSeek
+    base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    models:
+      - name: DeepSeek Chat
+        value: deepseek-chat
+      - name: DeepSeek V4 Pro
+        value: deepseek-v4-pro
+      - name: DeepSeek V4 Flash
+        value: deepseek-v4-flash
+
   - name: 通义千问
     base_url: https://llm-jm403wwr82zc6d86.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
     api_key_env: QWEN_API_KEY
@@ -28,17 +39,6 @@ providers:
       - name: DeepSeek V4 Pro（通义）
         value: deepseek-v4-pro
       - name: DeepSeek V4 Flash（通义）
-        value: deepseek-v4-flash
-
-  - name: DeepSeek
-    base_url: https://api.deepseek.com/v1
-    api_key_env: DEEPSEEK_API_KEY
-    models:
-      - name: DeepSeek Chat
-        value: deepseek-chat
-      - name: DeepSeek V4 Pro
-        value: deepseek-v4-pro
-      - name: DeepSeek V4 Flash
         value: deepseek-v4-flash
 
   - name: OpenAI 代理
