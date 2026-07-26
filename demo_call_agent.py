@@ -312,7 +312,7 @@ def build_hard_constraints() -> list[dict]:
 def demo_planning_agent(llm):
     h("1. 调用 PlanningAgent — 初始行程规划")
 
-    from agents.planning_agent import PlanningAgent
+    from backend.agents.planning_agent import PlanningAgent
 
     agent = PlanningAgent(llm_callable=llm)
 
@@ -377,10 +377,10 @@ def demo_planning_agent(llm):
 def demo_adjustment_agent(llm):
     h("2. 调用 AdjustmentAgent — 修改行程")
 
-    from agents.adjustment_agent import AdjustmentAgent
-    from schemas.modification import ModificationRequest
-    from schemas.itinerary import Itinerary
-    from services.version_service import save_version
+    from backend.agents.adjustment_agent import AdjustmentAgent
+    from backend.schemas.modification import ModificationRequest
+    from backend.schemas.itinerary import Itinerary
+    from backend.services.version_service import save_version
 
     # 先保存一个版本
     mock_itinerary = {
@@ -469,7 +469,7 @@ def demo_adjustment_agent(llm):
 def demo_validator_direct():
     h("3. 直接调用 Validator — 批量校验行程（无需 LLM）")
 
-    from validators.hard_constraint_validator import (
+    from backend.validators.hard_constraint_validator import (
         validate_hard_constraints,
         enrich_items_with_places,
     )
@@ -522,7 +522,7 @@ def demo_validator_direct():
 def demo_budget_direct():
     h("4. 直接调用 Budget Service — 算预算（无需 LLM）")
 
-    from services.budget_service import calculate_budget
+    from backend.services.budget_service import calculate_budget
 
     itinerary = {
         "days": [
@@ -598,18 +598,18 @@ def main():
     h("总结: 调用方式速查")
     print(f"""
   {B}1. 无需 LLM — 直接调用工具类函数:{E}
-     from validators.hard_constraint_validator import validate_hard_constraints
-     from services.budget_service import calculate_budget
-     from services.version_service import save_version, diff_versions
-     from services.diff_service import compute_diff
-     from services.itinerary_metrics_service import calculate_day_stats
+     from backend.validators.hard_constraint_validator import validate_hard_constraints
+     from backend.services.budget_service import calculate_budget
+     from backend.services.version_service import save_version, diff_versions
+     from backend.services.diff_service import compute_diff
+     from backend.services.itinerary_metrics_service import calculate_day_stats
 
   {B}2. 需 LLM — 通过 Agent 类:{E}
-     from agents.planning_agent import PlanningAgent
+     from backend.agents.planning_agent import PlanningAgent
      agent = PlanningAgent(llm_callable=your_llm_func)
      result = agent.plan(requirements=..., places=...)
 
-     from agents.adjustment_agent import AdjustmentAgent
+     from backend.agents.adjustment_agent import AdjustmentAgent
      agent = AdjustmentAgent(llm_callable=your_llm_func)
      result = agent.modify(request=..., requirements=...)
 

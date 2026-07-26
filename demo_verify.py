@@ -82,55 +82,55 @@ def verify_imports():
 
     modules = {
         "Validators": [
-            "validators.hard_constraint_validator",
-            "validators.opening_time_validator",
-            "validators.route_time_validator",
-            "validators.explicit_budget_validator",
-            "validators.explicit_walking_validator",
-            "validators.food_safety_validator",
-            "validators.factual_consistency_validator",
+            "backend.validators.hard_constraint_validator",
+            "backend.validators.opening_time_validator",
+            "backend.validators.route_time_validator",
+            "backend.validators.explicit_budget_validator",
+            "backend.validators.explicit_walking_validator",
+            "backend.validators.food_safety_validator",
+            "backend.validators.factual_consistency_validator",
         ],
         "Schemas": [
-            "schemas.common",
-            "schemas.itinerary",
-            "schemas.budget",
-            "schemas.evaluation",
-            "schemas.modification",
-            "schemas.version",
-            "schemas.planning_policy",
-            "schemas.preference_evaluation",
+            "backend.schemas.common",
+            "backend.schemas.itinerary",
+            "backend.schemas.budget",
+            "backend.schemas.evaluation",
+            "backend.schemas.modification",
+            "backend.schemas.version",
+            "backend.schemas.planning_policy",
+            "backend.schemas.preference_evaluation",
         ],
         "Services": [
-            "services.budget_service",
-            "services.itinerary_planner",
-            "services.version_service",
-            "services.adjustment_service",
-            "services.local_replan_service",
-            "services.diff_service",
-            "services.itinerary_metrics_service",
+            "backend.services.budget_service",
+            "backend.services.itinerary_planner",
+            "backend.services.version_service",
+            "backend.services.adjustment_service",
+            "backend.services.local_replan_service",
+            "backend.services.diff_service",
+            "backend.services.itinerary_metrics_service",
         ],
         "Agents": [
-            "agents.planning_state",
-            "agents.itinerary_preference_critic",
-            "agents.planning_agent",
-            "agents.adjustment_agent",
+            "backend.agents.planning_state",
+            "backend.agents.itinerary_preference_critic",
+            "backend.agents.planning_agent",
+            "backend.agents.adjustment_agent",
         ],
         "Prompts": [
-            "prompts.planning_preference_interpretation_prompt",
-            "prompts.itinerary_planning_prompt",
-            "prompts.itinerary_preference_critic_prompt",
-            "prompts.hard_constraint_repair_prompt",
-            "prompts.soft_preference_optimization_prompt",
-            "prompts.local_replan_prompt",
+            "backend.prompts.planning_preference_interpretation_prompt",
+            "backend.prompts.itinerary_planning_prompt",
+            "backend.prompts.itinerary_preference_critic_prompt",
+            "backend.prompts.hard_constraint_repair_prompt",
+            "backend.prompts.soft_preference_optimization_prompt",
+            "backend.prompts.local_replan_prompt",
         ],
         "API": [
-            "api.itinerary_api",
-            "api.validation_api",
-            "api.adjustment_api",
-            "api.version_api",
+            "backend.api.itinerary_api",
+            "backend.api.validation_api",
+            "backend.api.adjustment_api",
+            "backend.api.version_api",
         ],
         "Clients": [
-            "clients.recommendation_agent_client",
+            "backend.clients.recommendation_agent_client",
         ],
     }
 
@@ -178,7 +178,7 @@ def load_mock_data():
 
 def verify_budget(mock):
     header("4. 预算计算验证")
-    from services.budget_service import calculate_budget
+    from backend.services.budget_service import calculate_budget
 
     itinerary = mock.get("itinerary", {})
     # 构造 requirements
@@ -216,7 +216,7 @@ def verify_budget(mock):
 
 def verify_validation(mock):
     header("5. 硬约束校验验证")
-    from validators.hard_constraint_validator import (
+    from backend.validators.hard_constraint_validator import (
         validate_hard_constraints,
         enrich_items_with_places,
     )
@@ -258,8 +258,8 @@ def verify_validation(mock):
 
 def verify_version(mock):
     header("6. 版本管理与差异对比验证")
-    from schemas.itinerary import Itinerary
-    from services.version_service import save_version, get_itinerary, diff_versions, get_all_versions
+    from backend.schemas.itinerary import Itinerary
+    from backend.services.version_service import save_version, get_itinerary, diff_versions, get_all_versions
 
     itinerary_dict = mock.get("itinerary", {})
 
@@ -308,7 +308,7 @@ def verify_version(mock):
 
 def verify_metrics(mock):
     header("7. 行程指标计算验证")
-    from services.itinerary_metrics_service import (
+    from backend.services.itinerary_metrics_service import (
         calculate_day_stats,
         calculate_overall_metrics,
     )
@@ -341,8 +341,8 @@ def verify_metrics(mock):
 
 def verify_adjustment(mock):
     header("8. 调整服务验证")
-    from services.adjustment_service import replace_item, delete_item
-    from services.diff_service import compute_diff, summarize_changes
+    from backend.services.adjustment_service import replace_item, delete_item
+    from backend.services.diff_service import compute_diff, summarize_changes
 
     itinerary = mock.get("itinerary", {})
     days = [dict(d) for d in itinerary.get("days", [])]
@@ -628,9 +628,9 @@ def start_api_server():
         }
 
     # 注册路由
-    from api.itinerary_api import router as itinerary_router
-    from api.validation_api import router as validation_router
-    from api.version_api import router as version_router
+    from backend.api.itinerary_api import router as itinerary_router
+    from backend.api.validation_api import router as validation_router
+    from backend.api.version_api import router as version_router
 
     app.include_router(itinerary_router)
     app.include_router(validation_router)

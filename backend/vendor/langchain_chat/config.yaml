@@ -1,0 +1,88 @@
+# config.yaml —— langchain-chat 全局业务配置
+
+# 多环境扩展点（REQ-001 / Step 15）：
+#   本文件是「基础配置」，所有环境共享。
+#   未来通过 config.{env}.yaml（dev/test/prod）做「覆盖」，合并机制为：
+#       最终配置 = config.yaml（基础）+ config.{APP_ENV}.yaml（覆盖）
+#   当前阶段单环境运行，app.env 留空注释。
+
+# 应用元信息
+app:
+  name: langchain-chat
+  version: 0.1.0
+  current_step: "Step 16b  代码质量与测试完善"
+  # env: dev   # 多环境预留，Step 15 启用
+
+# 模型服务商配置（多服务商分组）
+# 每个服务商有自己的 base_url 和 api_key（Key 存 .env，这里只写变量名）。
+# 以后增加模型/服务商的操作见 Step 10 文档第三章 3.1 节。
+providers:
+  - name: DeepSeek
+    base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    models:
+      - name: DeepSeek Chat
+        value: deepseek-chat
+      - name: DeepSeek V4 Pro
+        value: deepseek-v4-pro
+      - name: DeepSeek V4 Flash
+        value: deepseek-v4-flash
+
+  - name: 通义千问
+    base_url: https://llm-jm403wwr82zc6d86.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+    api_key_env: QWEN_API_KEY
+    models:
+      - name: 通义千问 Plus
+        value: qwen3.5-plus-2026-04-20
+      - name: 通义千问 Max
+        value: qwen3.6-max-preview
+      - name: DeepSeek V4 Pro（通义）
+        value: deepseek-v4-pro
+      - name: DeepSeek V4 Flash（通义）
+        value: deepseek-v4-flash
+
+  - name: OpenAI 代理
+    base_url: https://api.chatanywhere.tech/v1
+    api_key_env: OPENAI_API_KEY
+    models:
+      - name: GPT-3.5 Turbo（免费）
+        value: gpt-3.5-turbo
+
+# 生成参数（所有模型共用）
+temperature: 0.7
+max_tokens: 2048
+
+# 存储配置
+# storage.type 由环境覆盖文件（config.{env}.yaml）指定，这里不设默认值。
+# 如果没有环境覆盖文件，默认用 sqlite。
+storage:
+  type: sqlite
+  sqlite:
+    path: data/sqlite/app.db
+  mysql:
+    host: localhost
+    port: 3306
+    user: root
+    database: langchain_chat
+    # password 从 .env 的 MYSQL_PASSWORD 读取
+  file:
+    path: data/filestore
+
+# LLM 调用参数（需求 G1 超时与重试）
+llm:
+  timeout: 30
+  max_retries: 3
+
+# 安全配置（Step 16 新增）
+security:
+  max_input_length: 5000        # 用户单次输入最大字符数（超过则提示）
+  context_max_tokens: 4000      # 发送给 LLM 的上下文最大 Token 数（滑动窗口 + Token 计数）
+
+# 会话配置（需求 C7 会话标题自动生成）
+session:
+  title_max_length: 30
+
+# 导出配置（需求 F2）
+export:
+  dir: data/users/{username}/exports
+  filename_template: "{title}_{date}.md"

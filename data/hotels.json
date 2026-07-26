@@ -1,0 +1,66 @@
+[
+  {
+    "place_id": "hotel_001",
+    "name": "东城舒适酒店",
+    "place_type": "hotel",
+    "city": "北京",
+    "area": "东城区",
+    "tags": ["交通方便", "靠近景点", "中等预算"],
+    "price": 480,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 116.405,
+      "latitude": 39.914
+    },
+    "description": "靠近核心景点和地铁站，适合作为北京短途游住宿点。",
+    "suitable_for": ["初次到访游客", "学生", "两人出行"]
+  },
+  {
+    "place_id": "hotel_002",
+    "name": "西城青年旅舍",
+    "place_type": "hotel",
+    "city": "北京",
+    "area": "西城区",
+    "tags": ["经济型", "公共交通方便", "适合学生"],
+    "price": 220,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 116.372,
+      "latitude": 39.918
+    },
+    "description": "价格相对友好，适合预算有限但希望交通便利的游客。",
+    "suitable_for": ["学生", "背包客", "预算敏感游客"]
+  },
+  {
+    "place_id": "tj_hotel_001",
+    "name": "天津瑞吉金融街酒店",
+    "place_type": "hotel",
+    "city": "天津",
+    "area": "和平区",
+    "tags": ["高品质优先", "海河附近", "交通方便", "舒适优先"],
+    "price": 900,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 117.197793,
+      "latitude": 39.129628
+    },
+    "description": "位于海河和城市核心区域附近，适合舒适型或高品质天津短途游。",
+    "suitable_for": ["情侣出游", "商务游客", "舒适优先游客"]
+  },
+  {
+    "place_id": "tj_hotel_002",
+    "name": "宜必思天津津湾广场酒店",
+    "place_type": "hotel",
+    "city": "天津",
+    "area": "和平区",
+    "tags": ["交通方便", "中等预算", "靠近景点", "地铁附近"],
+    "price": 320,
+    "open_time": "全天",
+    "coordinate": {
+      "longitude": 117.209,
+      "latitude": 39.1316
+    },
+    "description": "靠近津湾广场和天津站，适合以市区景点和海河夜景为主的行程。",
+    "suitable_for": ["初次到访游客", "学生", "预算敏感游客"]
+  }
+]

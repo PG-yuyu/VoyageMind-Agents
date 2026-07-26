@@ -1,23 +1,43 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
+# dependencies
+node_modules/
+
+# build output
 dist/
 build/
+
+# local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python cache / virtual env
+__pycache__/
+*.py[cod]
+*$py.class
 .venv/
 venv/
-*.egg
+env/
 
-# IDE
-.idea/
+# local runtime data
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+uploads/
+tmp/
+temp/
+
+# test / tooling cache
+.pytest_cache/
+.coverage
+coverage/
+.cache/
+.npm-cache/
+.vite/
+
+# editor / OS files
 .vscode/
-*.swp
-*.swo
-
-# OS
+.idea/
 .DS_Store
 Thumbs.db
-
-# Environment
-.env
-*.env.local

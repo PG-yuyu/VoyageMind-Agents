@@ -1,0 +1,14 @@
+# config.prod.yaml —— 生产环境覆盖配置
+#
+# 合并规则：最终配置 = config.yaml（基础）+ config.prod.yaml（覆盖）
+#
+# 生产环境特点：MySQL（高并发）、日志 INFO（只记录重要操作）
+
+storage:
+  type: mysql                   # 生产环境用 MySQL（高并发、多机共享）
+  mysql:
+    host: localhost
+    port: 3306
+    user: root
+    database: langchain_chat_prod   # 生产环境用独立的数据库名
+    # password 从 .env.prod 的 MYSQL_PASSWORD 读取
