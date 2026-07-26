@@ -1,0 +1,28 @@
+{
+  "from_version": 1,
+  "to_version": 2,
+  "affected_days": [2],
+  "changes": [
+    {
+      "change_type": "replace",
+      "before_item_id": "day2_item_004",
+      "after_item_id": "day2_item_004_v2",
+      "before_place_id": "attraction_004",
+      "after_place_id": "attraction_005",
+      "reason": "用户要求改为室内景点",
+      "cost_change": -20,
+      "distance_change_m": -3100
+    }
+  ],
+  "unchanged_item_ids": [
+    "day1_item_001",
+    "day1_item_002",
+    "day1_item_003",
+    "day1_item_004",
+    "day1_item_005",
+    "day2_item_001",
+    "day2_item_002",
+    "day2_item_003",
+    "day2_item_005"
+  ]
+}
