@@ -61,19 +61,32 @@
       </section>
 
       <aside class="trip-map__side">
+        <section v-if="selectedResource" class="selected-place">
+          <div>
+            <span>{{ placeTypeLabel(selectedResource) }}</span>
+            <strong>{{ selectedResource.name }}</strong>
+            <p>{{ selectedResource.short_description || selectedResource.recommend_reason || '暂无地点摘要' }}</p>
+          </div>
+          <dl>
+            <div>
+              <dt>预算</dt>
+              <dd>{{ selectedResource.price !== null && selectedResource.price !== undefined ? `约 ${selectedResource.price} 元` : '待定' }}</dd>
+            </div>
+            <div>
+              <dt>时间</dt>
+              <dd>{{ selectedResource.open_time || '全天' }}</dd>
+            </div>
+            <div>
+              <dt>坐标</dt>
+              <dd>{{ selectedResource.verified === false ? '待确认' : '已校验' }}</dd>
+            </div>
+          </dl>
+        </section>
+
         <section class="map-summary">
-          <article>
-            <span>可显示地点</span>
-            <strong>{{ validResources.length }}</strong>
-          </article>
-          <article>
-            <span>高德路线</span>
-            <strong>{{ amapRoutes.length }}</strong>
-          </article>
-          <article>
-            <span>需确认坐标</span>
-            <strong>{{ invalidResources.length }}</strong>
-          </article>
+          <article><span>地点</span><strong>{{ validResources.length }}</strong></article>
+          <article><span>路线</span><strong>{{ amapRoutes.length }}</strong></article>
+          <article><span>待确认</span><strong>{{ invalidResources.length }}</strong></article>
         </section>
 
         <PlaceList
@@ -173,6 +186,10 @@ const markerPositions = computed(() => {
 
 const selectedMarker = computed(() => {
   return markerPositions.value.find((marker) => marker.resource.place_id === selectedPlaceId.value) || markerPositions.value[0] || null
+})
+
+const selectedResource = computed(() => {
+  return resources.value.find((resource) => resource.place_id === selectedPlaceId.value) || resources.value[0] || null
 })
 
 const amapRoutes = computed(() => props.routes.filter(isVerifiedAmapRoute))
@@ -449,6 +466,14 @@ function stagger(index) {
   return ((index % 3) - 1) * 2.5
 }
 
+function placeTypeLabel(resource) {
+  return {
+    attraction: '景点',
+    hotel: '酒店',
+    restaurant: '餐饮'
+  }[resource?.place_type] || '地点'
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
@@ -457,10 +482,10 @@ function clamp(value, min, max) {
 <style scoped>
 .trip-map {
   display: grid;
-  gap: 16px;
-  padding: 24px;
+  gap: 14px;
+  padding: 22px;
   border: 1px solid rgba(218, 228, 238, 0.9);
-  border-radius: 28px;
+  border-radius: 26px;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 26px 70px rgba(31, 41, 55, 0.08);
 }
@@ -475,7 +500,7 @@ function clamp(value, min, max) {
 .trip-map__head h2 {
   margin: 0;
   color: #101827;
-  font-size: 26px;
+  font-size: 24px;
   line-height: 1.18;
 }
 
@@ -504,22 +529,22 @@ function clamp(value, min, max) {
 }
 
 .trip-map__alerts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .trip-map__notice {
   margin: 0;
-  min-height: 44px;
-  padding: 10px 12px;
+  min-height: 34px;
+  padding: 8px 11px;
   border: 1px solid #fed7aa;
-  border-radius: 14px;
+  border-radius: 999px;
   background: #fff7ed;
   color: #b45309;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
-  line-height: 1.45;
+  line-height: 1.35;
 }
 
 .trip-map__notice.muted {
@@ -536,9 +561,10 @@ function clamp(value, min, max) {
 
 .trip-map__layout {
   display: grid;
-  grid-template-columns: minmax(560px, 1.35fr) minmax(340px, 0.65fr);
+  grid-template-columns: minmax(620px, 1fr) 360px;
   align-items: stretch;
-  gap: 18px;
+  gap: 16px;
+  min-height: 0;
 }
 
 .trip-map__stage {
@@ -550,11 +576,11 @@ function clamp(value, min, max) {
 
 .trip-map__canvas {
   position: relative;
-  height: clamp(520px, 64vh, 720px);
-  min-height: 520px;
+  height: clamp(500px, 58vh, 660px);
+  min-height: 500px;
   overflow: hidden;
   border: 1px solid rgba(218, 228, 238, 0.9);
-  border-radius: 22px;
+  border-radius: 20px;
   background: #f3f7fb;
   isolation: isolate;
   contain: layout paint;
@@ -663,24 +689,95 @@ function clamp(value, min, max) {
 
 .trip-map__side {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 14px;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
   min-width: 0;
+  min-height: 0;
+  height: clamp(500px, 58vh, 660px);
+  overflow: hidden;
+}
+
+.selected-place {
+  display: grid;
+  gap: 14px;
+  padding: 17px;
+  border: 1px solid #dfe8f2;
+  border-radius: 20px;
+  background: #fbfdff;
+}
+
+.selected-place span {
+  width: fit-content;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #e9fbf7;
+  color: #0f8f7e;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.selected-place strong {
+  display: block;
+  margin-top: 9px;
+  color: #101827;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.selected-place p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 8px 0 0;
+  color: #647286;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.selected-place dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.selected-place dl div {
+  padding: 10px;
+  border-radius: 14px;
+  background: #f4f7fb;
+}
+
+.selected-place dt,
+.selected-place dd {
+  margin: 0;
+}
+
+.selected-place dt {
+  color: #667386;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.selected-place dd {
+  margin-top: 4px;
+  color: #101827;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .map-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .map-summary article {
   display: grid;
   gap: 4px;
-  min-height: 78px;
-  padding: 13px;
+  min-height: 64px;
+  padding: 11px;
   border: 1px solid #e1e9f2;
-  border-radius: 18px;
+  border-radius: 16px;
   background: #f8fbff;
 }
 
@@ -692,7 +789,7 @@ function clamp(value, min, max) {
 
 .map-summary strong {
   color: #101827;
-  font-size: 24px;
+  font-size: 22px;
   line-height: 1;
 }
 
@@ -789,8 +886,9 @@ function clamp(value, min, max) {
     min-height: 520px;
   }
 
-  .trip-map__alerts {
-    grid-template-columns: 1fr;
+  .trip-map__side {
+    height: auto;
+    overflow: visible;
   }
 }
 

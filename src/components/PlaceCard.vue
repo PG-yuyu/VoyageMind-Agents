@@ -14,15 +14,10 @@
     <div class="place-card__meta">
       <small v-if="place.price !== null && place.price !== undefined">约 {{ place.price }} 元</small>
       <small v-if="place.open_time">{{ place.open_time }}</small>
-      <small>{{ place.address || '地址待补充' }}</small>
-    </div>
-
-    <div v-if="place.tags?.length" class="place-card__tags">
-      <em v-for="tag in place.tags.slice(0, 4)" :key="tag">{{ tag }}</em>
     </div>
 
     <footer>
-      <p>{{ place.recommend_reason || '推荐理由待补充' }}</p>
+      <p>{{ place.address || '地址待补充' }}</p>
       <b v-if="coordinateWarning">{{ warningText }}</b>
     </footer>
   </article>
@@ -64,10 +59,10 @@ const warningText = computed(() => {
 <style scoped>
 .place-card {
   display: grid;
-  gap: 9px;
-  padding: 14px;
+  gap: 7px;
+  padding: 12px;
   border: 1px solid #e1e9f2;
-  border-radius: 16px;
+  border-radius: 15px;
   background: #fbfdff;
   text-align: left;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
@@ -86,8 +81,10 @@ const warningText = computed(() => {
 }
 
 .place-card header {
-  display: grid;
-  gap: 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .place-card span {
@@ -111,9 +108,12 @@ const warningText = computed(() => {
 }
 
 .place-card strong {
+  overflow: hidden;
   color: #101827;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .place-card p {
@@ -150,14 +150,14 @@ const warningText = computed(() => {
 
 .place-card footer {
   display: grid;
-  gap: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #edf2f7;
+  gap: 4px;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .place-card footer p {
-  color: #273244;
-  font-size: 13px;
+  color: #667386;
+  font-size: 12px;
   font-weight: 750;
 }
 
