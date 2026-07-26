@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import TripMap from './components/TripMap.vue'
 import {
   createSession,
@@ -28,6 +28,7 @@ const planning = ref(false)
 const sessionId = ref('')
 const apiError = ref('')
 const hasPlan = ref(false)
+const STORAGE_KEY = 'voyage-mind-member1-state'
 
 const messages = ref([])
 
@@ -297,16 +298,103 @@ const preferenceSummary = computed(() => [
 ])
 
 onMounted(async () => {
+  restorePersistedState()
   loadMapResources()
   try {
     await healthCheck()
-    const session = await createSession()
-    sessionId.value = session.session_id
+    if (!sessionId.value) {
+      const session = await createSession(currentUser.value?.user_id || 'demo_user')
+      sessionId.value = session.session_id
+    }
   } catch (error) {
     apiError.value = error.message
-    sessionId.value = `local_${Date.now()}`
+    if (!sessionId.value) {
+      sessionId.value = `local_${Date.now()}`
+    }
   }
 })
+
+watch(
+  [
+    activePage,
+    sessionId,
+    hasPlan,
+    messages,
+    requirements,
+    itineraryDays,
+    activeDay,
+    tripHistory,
+    documents,
+    currentUser,
+    isAuthenticated,
+    recommendationResult,
+    recommendedRoutes,
+    mapResources,
+    budget
+  ],
+  persistState,
+  { deep: true }
+)
+
+function persistState() {
+  if (typeof window === 'undefined') return
+  const payload = {
+    activePage: activePage.value,
+    sessionId: sessionId.value,
+    hasPlan: hasPlan.value,
+    messages: messages.value,
+    requirements: requirements.value,
+    itineraryDays: itineraryDays.value,
+    activeDay: activeDay.value,
+    tripHistory: tripHistory.value,
+    documents: documents.value,
+    currentUser: currentUser.value,
+    isAuthenticated: isAuthenticated.value,
+    recommendationResult: recommendationResult.value,
+    recommendedRoutes: recommendedRoutes.value,
+    mapResources: mapResources.value,
+    budget: budget.value
+  }
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+  } catch (error) {
+    apiError.value = '本地历史保存空间不足，部分记录可能无法持久化。'
+  }
+}
+
+function restorePersistedState() {
+  if (typeof window === 'undefined') return
+  let payload = null
+  try {
+    payload = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null')
+  } catch (_error) {
+    window.localStorage.removeItem(STORAGE_KEY)
+    return
+  }
+  if (!payload || typeof payload !== 'object') return
+
+  activePage.value = payload.activePage || 'plan'
+  sessionId.value = payload.sessionId || ''
+  hasPlan.value = Boolean(payload.hasPlan)
+  messages.value = Array.isArray(payload.messages) ? payload.messages : []
+  requirements.value = payload.requirements && typeof payload.requirements === 'object'
+    ? { ...requirements.value, ...payload.requirements }
+    : requirements.value
+  itineraryDays.value = Array.isArray(payload.itineraryDays) && payload.itineraryDays.length
+    ? payload.itineraryDays
+    : itineraryDays.value
+  activeDay.value = Number(payload.activeDay) || 1
+  tripHistory.value = Array.isArray(payload.tripHistory) ? payload.tripHistory : []
+  documents.value = Array.isArray(payload.documents) ? payload.documents : documents.value
+  currentUser.value = payload.currentUser || null
+  isAuthenticated.value = Boolean(payload.isAuthenticated && payload.currentUser)
+  recommendationResult.value = payload.recommendationResult || null
+  recommendedRoutes.value = Array.isArray(payload.recommendedRoutes) ? payload.recommendedRoutes : []
+  mapResources.value = Array.isArray(payload.mapResources) && payload.mapResources.length
+    ? payload.mapResources
+    : mapResources.value
+  budget.value = Array.isArray(payload.budget) && payload.budget.length ? payload.budget : budget.value
+}
 
 async function loadMapResources() {
   mapLoading.value = true
