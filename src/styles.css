@@ -832,6 +832,11 @@ textarea {
   justify-self: center;
 }
 
+.page.map-page > .page-head,
+.page.map-page > :not(.page-head) {
+  width: min(100%, 1380px);
+}
+
 .page-head h1 {
   font-size: 30px;
   line-height: 1.2;

@@ -77,6 +77,7 @@ function countByType(type) {
 <style scoped>
 .place-list {
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   align-content: start;
   gap: 14px;
   min-width: 0;
@@ -135,10 +136,10 @@ function countByType(type) {
 
 .place-list__items {
   display: grid;
-  max-height: 620px;
+  max-height: none;
   gap: 12px;
   overflow: auto;
-  padding-right: 4px;
+  padding-right: 6px;
 }
 
 .place-list__empty {
