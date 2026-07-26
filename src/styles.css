@@ -902,8 +902,8 @@ textarea {
 
 .itinerary-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 24px;
   align-items: start;
 }
 
@@ -1003,33 +1003,27 @@ textarea {
 .timeline-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
-}
-
-.timeline-actions button {
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid #d9e3ee;
-  border-radius: 999px;
-  background: #fff;
-  color: #4f65ff;
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.timeline-actions button:hover {
-  border-color: #4f65ff;
-  background: #eef3ff;
+  min-width: 72px;
 }
 
 .trip-side {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   align-self: start;
 }
 
+.trip-side .panel {
+  min-height: 164px;
+}
+
+.trip-side .mini-map-card {
+  min-height: 318px;
+}
+
 .trip-side h3 {
-  margin: 0 0 14px;
+  margin: 0 0 16px;
   color: #101827;
   font-size: 20px;
 }
@@ -1192,71 +1186,6 @@ textarea {
   color: #0f7d70;
   font-size: 14px;
   font-weight: 850;
-}
-
-.action-card {
-  display: grid;
-  gap: 12px;
-}
-
-.action-card button {
-  min-height: 42px;
-  border: 1px solid #d9e3ee;
-  border-radius: 14px;
-  background: #fff;
-  color: #344154;
-  font-weight: 850;
-}
-
-.action-card button:hover {
-  border-color: #4f65ff;
-  color: #3043a4;
-}
-
-.edit-target {
-  display: grid;
-  gap: 6px;
-  padding: 12px;
-  border-radius: 16px;
-  background: #f7faff;
-}
-
-.edit-target span {
-  color: #7a8798;
-  font-size: 13px;
-  font-weight: 850;
-}
-
-.edit-target strong {
-  color: #101827;
-  line-height: 1.4;
-}
-
-.edit-presets {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.edit-presets button {
-  min-height: 38px;
-  border-radius: 12px;
-  font-size: 14px;
-}
-
-.action-card textarea {
-  width: 100%;
-  min-height: 110px;
-  resize: vertical;
-  border: 1px solid #d9e3ee;
-  border-radius: 14px;
-  background: #fff;
-}
-
-.action-card .submit-edit {
-  border: 0;
-  background: #172033;
-  color: #fff;
 }
 
 .smart-adjust-box {
