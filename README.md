@@ -206,7 +206,7 @@ copy .env.example .env
 
 ```text
 DEEPSEEK_API_KEY=sk-your-key-here
-DEFAULT_MODEL=deepseek-chat
+DEFAULT_MODEL=deepseek-v4-flash
 AMAP_WEB_SERVICE_KEY=your-amap-key
 VITE_AMAP_JS_KEY=your-amap-js-key
 VITE_AMAP_SECURITY_CODE=your-security-code
