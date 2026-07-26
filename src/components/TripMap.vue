@@ -22,30 +22,32 @@
 
     <div class="trip-map__layout">
       <section class="trip-map__stage">
-        <div v-show="realMapReady" ref="realMapElement" class="real-map" :class="{ loading }"></div>
-        <div v-if="!realMapReady" class="mock-map" :class="{ loading }">
-          <RoutePolyline
-            v-for="route in mockRouteLines"
-            :key="route.key"
-            :points="route.points"
-          />
-          <MapMarker
-            v-for="marker in markerPositions"
-            :key="marker.resource.place_id"
-            :resource="marker.resource"
-            :x="marker.x"
-            :y="marker.y"
-            :active="selectedPlaceId === marker.resource.place_id"
-            @select="selectResource"
-          />
-          <MapInfoWindow
-            v-if="hasManualSelection && selectedMarker"
-            :resource="selectedMarker.resource"
-            :x="selectedMarker.x"
-            :y="selectedMarker.y"
-          />
-          <div v-if="!validResources.length" class="mock-map__empty">
-            当前没有可渲染 Marker 的地点
+        <div class="trip-map__canvas">
+          <div ref="realMapElement" class="real-map" :class="{ ready: realMapReady, loading }"></div>
+          <div v-if="!realMapReady" class="mock-map" :class="{ loading }">
+            <RoutePolyline
+              v-for="route in mockRouteLines"
+              :key="route.key"
+              :points="route.points"
+            />
+            <MapMarker
+              v-for="marker in markerPositions"
+              :key="marker.resource.place_id"
+              :resource="marker.resource"
+              :x="marker.x"
+              :y="marker.y"
+              :active="selectedPlaceId === marker.resource.place_id"
+              @select="selectResource"
+            />
+            <MapInfoWindow
+              v-if="hasManualSelection && selectedMarker"
+              :resource="selectedMarker.resource"
+              :x="selectedMarker.x"
+              :y="selectedMarker.y"
+            />
+            <div v-if="!validResources.length" class="mock-map__empty">
+              当前没有可渲染 Marker 的地点
+            </div>
           </div>
         </div>
 
@@ -269,6 +271,8 @@ async function initializeRealMap() {
     })
     realMapReady.value = true
     realMapError.value = ''
+    await nextTick()
+    amapInstance.value.resize()
     renderAmapMarkers()
     renderAmapRoutes()
   } catch (error) {
@@ -544,13 +548,38 @@ function clamp(value, min, max) {
   min-width: 0;
 }
 
-.real-map {
+.trip-map__canvas {
+  position: relative;
   height: clamp(520px, 64vh, 720px);
   min-height: 520px;
   overflow: hidden;
   border: 1px solid rgba(218, 228, 238, 0.9);
   border-radius: 22px;
   background: #f3f7fb;
+  isolation: isolate;
+  contain: layout paint;
+}
+
+.real-map,
+.mock-map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.real-map {
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.real-map.ready {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .real-map.loading {
@@ -558,12 +587,7 @@ function clamp(value, min, max) {
 }
 
 .mock-map {
-  position: relative;
-  height: clamp(520px, 64vh, 720px);
-  min-height: 520px;
-  overflow: hidden;
-  border: 1px solid rgba(218, 228, 238, 0.9);
-  border-radius: 22px;
+  z-index: 2;
   background:
     linear-gradient(90deg, rgba(79, 101, 255, 0.09) 1px, transparent 1px),
     linear-gradient(rgba(79, 101, 255, 0.09) 1px, transparent 1px),
@@ -626,6 +650,15 @@ function clamp(value, min, max) {
 .trip-map__legend .warning {
   background: #fff8f1;
   color: #b45309;
+}
+
+:deep(.amap-container),
+:deep(.amap-maps),
+:deep(.amap-layers),
+:deep(.amap-layer),
+:deep(.amap-e) {
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .trip-map__side {
@@ -752,8 +785,7 @@ function clamp(value, min, max) {
     grid-template-columns: 1fr;
   }
 
-  .real-map,
-  .mock-map {
+  .trip-map__canvas {
     min-height: 520px;
   }
 
@@ -772,8 +804,7 @@ function clamp(value, min, max) {
     border-radius: 22px;
   }
 
-  .real-map,
-  .mock-map {
+  .trip-map__canvas {
     height: 440px;
     min-height: 440px;
   }
