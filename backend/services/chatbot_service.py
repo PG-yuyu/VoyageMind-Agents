@@ -41,7 +41,7 @@ class ChatbotService:
             from core.config_manager import get_config
 
             if not os.environ.get("DEFAULT_MODEL"):
-                os.environ["DEFAULT_MODEL"] = "deepseek-chat"
+                os.environ["DEFAULT_MODEL"] = "deepseek-v4-flash"
             self.engine = ChatEngine(get_config())
             self.available = True
             os.chdir(cwd)
@@ -83,7 +83,11 @@ class ChatbotService:
         if not self.available or self.engine is None:
             return fallback
 
-        first_reply = self.chat(system_prompt, user_prompt)
+        try:
+            first_reply = self.chat(system_prompt, user_prompt)
+        except Exception as exc:
+            self.error = str(exc)
+            return fallback
         parsed = self._parse_json_object(first_reply)
         if parsed is not None:
             return parsed
@@ -92,7 +96,11 @@ class ChatbotService:
             f"{user_prompt}\n\n"
             "上一次输出不是合法 JSON。请只返回一个 JSON 对象，不要 Markdown，不要解释。"
         )
-        second_reply = self.chat(system_prompt, retry_prompt)
+        try:
+            second_reply = self.chat(system_prompt, retry_prompt)
+        except Exception as exc:
+            self.error = str(exc)
+            return fallback
         parsed = self._parse_json_object(second_reply)
         return parsed if parsed is not None else fallback
 
@@ -106,7 +114,11 @@ class ChatbotService:
             "用简洁中文返回面向用户的下一步说明。"
         )
         payload = json.dumps(context, ensure_ascii=False)
-        return self.chat(system, f"用户输入：{message}\n当前结构化上下文：{payload}")
+        try:
+            return self.chat(system, f"用户输入：{message}\n当前结构化上下文：{payload}")
+        except Exception as exc:
+            self.error = str(exc)
+            return self._fallback_reply(context)
 
     def answer_travel_question(
         self, question: str, rag_result: dict | None = None
@@ -122,7 +134,11 @@ class ChatbotService:
             "请使用 Markdown 输出：短开头 + 编号列表或项目符号列表；不要把多个编号挤在同一段。"
         )
         context = json.dumps(rag_result or {}, ensure_ascii=False)
-        return self.chat(system, f"用户问题：{question}\n资料库检索结果：{context}")
+        try:
+            return self.chat(system, f"用户问题：{question}\n资料库检索结果：{context}")
+        except Exception as exc:
+            self.error = str(exc)
+            return self._fallback_travel_answer(question)
 
     async def stream_travel_question(
         self, question: str, rag_result: dict | None = None

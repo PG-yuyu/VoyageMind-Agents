@@ -55,14 +55,16 @@ class IntentAgent:
             "change_to_indoor",
             None,
         }
-        intent = result.get("intent")
-        sub_intent = result.get("sub_intent")
-        if intent not in valid_intents or sub_intent not in valid_sub_intents:
-            return fallback
         try:
             confidence = float(result.get("confidence", fallback.confidence))
         except (TypeError, ValueError):
             confidence = fallback.confidence
+        intent = result.get("intent")
+        sub_intent = result.get("sub_intent")
+        if intent not in valid_intents or sub_intent not in valid_sub_intents:
+            return fallback
+        if confidence < 0.6 and fallback.confidence >= confidence:
+            return fallback
         return IntentResult(
             intent=intent,
             confidence=max(0.0, min(confidence, 1.0)),
