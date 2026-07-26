@@ -1,0 +1,11 @@
+{
+  "hotel_cost": 900,
+  "ticket_cost": 240,
+  "meal_cost": 800,
+  "transport_cost": 200,
+  "other_cost": 0,
+  "total_cost": 2140,
+  "total_budget": 2500,
+  "remaining_budget": 360,
+  "over_budget": false
+}

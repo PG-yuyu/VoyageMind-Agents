@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import TripMap from './components/TripMap.vue'
 import {
   createSession,
@@ -28,6 +28,7 @@ const planning = ref(false)
 const sessionId = ref('')
 const apiError = ref('')
 const hasPlan = ref(false)
+const STORAGE_KEY = 'voyage-mind-member1-state'
 
 const messages = ref([])
 
@@ -106,6 +107,8 @@ const defaultItineraryTemplates = itineraryDays.value.map((day) => ({
 }))
 
 const activeDay = ref(1)
+const selectedEditItem = ref(null)
+const editRequest = ref('')
 const smartAdjustInput = ref('')
 const smartAdjustPreview = ref(null)
 const appliedAdjustment = ref('')
@@ -297,16 +300,103 @@ const preferenceSummary = computed(() => [
 ])
 
 onMounted(async () => {
+  restorePersistedState()
   loadMapResources()
   try {
     await healthCheck()
-    const session = await createSession()
-    sessionId.value = session.session_id
+    if (!sessionId.value) {
+      const session = await createSession(currentUser.value?.user_id || 'demo_user')
+      sessionId.value = session.session_id
+    }
   } catch (error) {
     apiError.value = error.message
-    sessionId.value = `local_${Date.now()}`
+    if (!sessionId.value) {
+      sessionId.value = `local_${Date.now()}`
+    }
   }
 })
+
+watch(
+  [
+    activePage,
+    sessionId,
+    hasPlan,
+    messages,
+    requirements,
+    itineraryDays,
+    activeDay,
+    tripHistory,
+    documents,
+    currentUser,
+    isAuthenticated,
+    recommendationResult,
+    recommendedRoutes,
+    mapResources,
+    budget
+  ],
+  persistState,
+  { deep: true }
+)
+
+function persistState() {
+  if (typeof window === 'undefined') return
+  const payload = {
+    activePage: activePage.value,
+    sessionId: sessionId.value,
+    hasPlan: hasPlan.value,
+    messages: messages.value,
+    requirements: requirements.value,
+    itineraryDays: itineraryDays.value,
+    activeDay: activeDay.value,
+    tripHistory: tripHistory.value,
+    documents: documents.value,
+    currentUser: currentUser.value,
+    isAuthenticated: isAuthenticated.value,
+    recommendationResult: recommendationResult.value,
+    recommendedRoutes: recommendedRoutes.value,
+    mapResources: mapResources.value,
+    budget: budget.value
+  }
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+  } catch (error) {
+    apiError.value = '本地历史保存空间不足，部分记录可能无法持久化。'
+  }
+}
+
+function restorePersistedState() {
+  if (typeof window === 'undefined') return
+  let payload = null
+  try {
+    payload = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || 'null')
+  } catch (_error) {
+    window.localStorage.removeItem(STORAGE_KEY)
+    return
+  }
+  if (!payload || typeof payload !== 'object') return
+
+  activePage.value = payload.activePage || 'plan'
+  sessionId.value = payload.sessionId || ''
+  hasPlan.value = Boolean(payload.hasPlan)
+  messages.value = Array.isArray(payload.messages) ? payload.messages : []
+  requirements.value = payload.requirements && typeof payload.requirements === 'object'
+    ? { ...requirements.value, ...payload.requirements }
+    : requirements.value
+  itineraryDays.value = Array.isArray(payload.itineraryDays) && payload.itineraryDays.length
+    ? payload.itineraryDays
+    : itineraryDays.value
+  activeDay.value = Number(payload.activeDay) || 1
+  tripHistory.value = Array.isArray(payload.tripHistory) ? payload.tripHistory : []
+  documents.value = Array.isArray(payload.documents) ? payload.documents : documents.value
+  currentUser.value = payload.currentUser || null
+  isAuthenticated.value = Boolean(payload.isAuthenticated && payload.currentUser)
+  recommendationResult.value = payload.recommendationResult || null
+  recommendedRoutes.value = Array.isArray(payload.recommendedRoutes) ? payload.recommendedRoutes : []
+  mapResources.value = Array.isArray(payload.mapResources) && payload.mapResources.length
+    ? payload.mapResources
+    : mapResources.value
+  budget.value = Array.isArray(payload.budget) && payload.budget.length ? payload.budget : budget.value
+}
 
 async function loadMapResources() {
   mapLoading.value = true
@@ -633,6 +723,16 @@ function formatMessage(text) {
   return html
 }
 
+function selectEditItem(item) {
+  selectedEditItem.value = {
+    day: activeItinerary.value.day,
+    time: item.time,
+    title: item.title,
+    tag: item.tag
+  }
+  editRequest.value = `调整第 ${activeItinerary.value.day} 天 ${item.time} 的「${item.title}」`
+}
+
 function openPlaceDetail(item) {
   selectedPlace.value = placeDetails[item.title] || {
     image: 'https://images.unsplash.com/photo-1518156677180-95a2893f3e9f?auto=format&fit=crop&w=900&q=80',
@@ -640,6 +740,21 @@ function openPlaceDetail(item) {
     desc: item.desc,
     tips: [item.tag, item.route, '可根据天气、体力和预算继续调整']
   }
+}
+
+function applyEditPreset(text) {
+  const target = selectedEditItem.value
+    ? `第 ${selectedEditItem.value.day} 天 ${selectedEditItem.value.time}「${selectedEditItem.value.title}」`
+    : `第 ${activeItinerary.value.day} 天`
+  editRequest.value = `把${target}${text}`
+}
+
+function submitEditRequest() {
+  const text = editRequest.value.trim()
+  if (!text) return
+  appliedAdjustment.value = `已提交修改：${text}`
+  messages.value.push({ role: 'user', text })
+  messages.value.push({ role: 'assistant', text: '已收到修改要求，我会保持在当前行程页，并优先调整受影响的时间段。' })
 }
 
 function analyzeSmartAdjustment() {
@@ -785,7 +900,7 @@ async function submitAuth() {
         <span>当前计划</span>
         <strong v-if="hasPlan">{{ requirements.city || '天津' }} {{ requirements.days || itineraryDays.length }} 日游</strong>
         <strong v-else>还没有行程</strong>
-        <p>{{ hasPlan ? (requirements.interests?.join('、') || '已生成规划') : '去智能规划创建' }}</p>
+        <p>{{ hasPlan ? (requirements.interests?.join('、') || '已生成规划') : '先说出你的天津旅行想法' }}</p>
       </section>
 
       <button class="account-entry" @click="authOpen = true">
@@ -809,8 +924,8 @@ async function submitAuth() {
             </div>
             <div class="quick-prompts">
               <button @click="fillPrompt('帮我规划天津两日游，预算1800元，喜欢近代建筑和海河夜景。')">天津经典两日</button>
-              <button @click="fillPrompt('帮我规划天津一日游，带父母同行，预算1000元，尽量减少步行。')">父母轻松一日</button>
-              <button @click="fillPrompt('帮我规划天津三日游，预算3000元，想看海河夜景、近代建筑和本地美食。')">天津深度三日</button>
+              <button @click="fillPrompt('把第二天下午改成室内景点，并减少步行。')">减少步行</button>
+              <button @click="fillPrompt('五大道有哪些游览注意事项？请给出来源。', 'qa')">问五大道注意事项</button>
             </div>
           </div>
 
@@ -868,15 +983,15 @@ async function submitAuth() {
       </section>
 
       <section v-else-if="activePage === 'trip'" class="page trip-page">
+        <template v-if="hasPlan">
         <div class="page-head">
           <div>
             <p class="eyebrow">Your Itinerary</p>
-            <h1>{{ hasPlan ? `${requirements.city || '天津'} ${requirements.days || itineraryDays.length} 日自由行` : '我的行程' }}</h1>
-            <p>{{ hasPlan ? '按兴趣偏好、预算和步行强度生成，支持继续对话修改某一天或某个时段。' : '生成后这里会展示每天的时间线、地点详情和智能修改入口。' }}</p>
+            <h1>{{ requirements.city || '天津' }} {{ requirements.days || itineraryDays.length }} 日自由行</h1>
+            <p>按兴趣偏好、预算和步行强度生成，支持继续对话修改某一天或某个时段。</p>
           </div>
         </div>
 
-        <template v-if="hasPlan">
         <section class="trip-overview">
           <article>
             <span>住宿锚点</span>
@@ -951,6 +1066,7 @@ async function submitAuth() {
                     <small>{{ item.route }}</small>
                     <div class="timeline-actions">
                       <em>{{ item.cost }} 元</em>
+                      <button @click="selectEditItem(item)">调整</button>
                     </div>
                   </footer>
                 </div>
@@ -1046,10 +1162,10 @@ async function submitAuth() {
           </aside>
         </section>
         </template>
-        <section v-else class="empty-state compact-empty">
+        <section v-else class="empty-state">
           <p class="eyebrow">No Itinerary</p>
           <h1>还没有生成行程</h1>
-          <p>先在智能规划里告诉我天数、预算、同行人和偏好，生成后这里会自动展示行程内容。</p>
+          <p>先在智能规划里告诉我天数、预算、同行人和偏好，生成后这里会展示每天的时间线、地点详情和智能修改入口。</p>
           <button class="primary" @click="activePage = 'plan'">去生成行程</button>
         </section>
       </section>
@@ -1059,42 +1175,28 @@ async function submitAuth() {
           <div>
             <p class="eyebrow">Route Map</p>
             <h1>路线地图</h1>
-            <p>{{ hasPlan ? `展示推荐地点、地图 Marker 和 ${amapRouteCount} 条高德实际路线。` : '生成行程后，这里会展示推荐地点、路线节点和预计交通耗时。' }}</p>
+            <p>{{ hasPlan ? '展示推荐地点、坐标状态和地点卡片，点击 Marker 或卡片可同步定位。' : '当前显示演示推荐地点，生成行程后会替换为真实推荐资源。' }}</p>
           </div>
-          <button class="primary" :disabled="mapLoading" @click="loadMapResources">
-            {{ mapLoading ? '加载中' : '刷新地图资源' }}
-          </button>
+          <button class="primary" :disabled="mapLoading" @click="loadMapResources">{{ mapLoading ? '加载中' : '刷新地图资源' }}</button>
         </div>
-
-        <template v-if="hasPlan">
-          <section class="panel map-panel">
-            <TripMap
-              :resources="mapResources"
-              :routes="recommendedRoutes"
-              :loading="mapLoading"
-              :error="mapError"
-              @retry="loadMapResources"
-            />
-          </section>
-        </template>
-
-        <section v-else class="empty-state compact-empty">
-          <p class="eyebrow">No Route</p>
-          <h1>暂无路线</h1>
-          <p>先生成天津旅行方案，路线图会在这里自动整理成可查看的推荐地点和路线。</p>
-          <button class="primary" @click="activePage = 'plan'">先去规划</button>
-        </section>
+        <TripMap
+          :resources="mapResources"
+          :routes="recommendedRoutes"
+          :loading="mapLoading"
+          :error="mapError"
+          @retry="loadMapResources"
+        />
       </section>
 
       <section v-else-if="activePage === 'budget'" class="page budget-page">
+        <template v-if="hasPlan">
         <div class="page-head">
           <div>
             <p class="eyebrow">Budget</p>
             <h1>预算概览</h1>
-            <p>{{ hasPlan ? `预计花费 ${totalSpent} 元，剩余 ${remainingBudget} 元。` : '生成行程后，这里会展示酒店、餐饮、门票和交通费用拆分。' }}</p>
+            <p>预计花费 {{ totalSpent }} 元，剩余 {{ remainingBudget }} 元。</p>
           </div>
         </div>
-        <template v-if="hasPlan">
         <section class="panel budget-panel">
           <div class="budget-ring">
             <strong>{{ budgetPercent }}%</strong>
@@ -1111,10 +1213,10 @@ async function submitAuth() {
           </div>
         </section>
         </template>
-        <section v-else class="empty-state compact-empty">
-          <p class="eyebrow">No Budget</p>
+        <section v-else class="empty-state">
+          <p class="eyebrow">Budget</p>
           <h1>暂无预算</h1>
-          <p>先生成一份天津行程，系统会把预算拆分成更容易检查的费用项。</p>
+          <p>等行程生成后，系统会把酒店、餐饮、门票和交通费用拆开显示。</p>
           <button class="primary" @click="activePage = 'plan'">先去规划</button>
         </section>
       </section>

@@ -1,63 +1,92 @@
 <template>
-  <section class="trip-map panel">
+  <section class="trip-map">
     <header class="trip-map__head">
       <div>
-        <p class="eyebrow">Map Resources</p>
+        <p class="eyebrow">Route Map</p>
         <h2>推荐地点地图</h2>
-        <span>{{ validResources.length }} 个 Marker · {{ amapRoutes.length }} 条高德路线 · {{ invalidResources.length }} 个坐标提示</span>
+        <span>地点、路线和坐标校验会集中展示在这里。</span>
       </div>
-      <button class="ghost-button" :disabled="loading" @click="$emit('retry')">
-        {{ loading ? '加载中' : '刷新地点' }}
-      </button>
+      <div class="trip-map__actions">
+        <span class="status-pill">{{ realMapReady ? '高德地图已接入' : '轻量地图模式' }}</span>
+        <button class="ghost-button" :disabled="loading" @click="$emit('retry')">
+          {{ loading ? '加载中' : '刷新地点' }}
+        </button>
+      </div>
     </header>
 
-    <p v-if="error" class="trip-map__notice">{{ error }}</p>
-    <p v-if="mapModeNotice" class="trip-map__notice muted">{{ mapModeNotice }}</p>
-    <p v-if="routeStatusNotice" class="trip-map__notice route">{{ routeStatusNotice }}</p>
+    <div v-if="error || mapModeNotice" class="trip-map__alerts">
+      <p v-if="error" class="trip-map__notice">{{ error }}</p>
+      <p v-if="mapModeNotice" class="trip-map__notice muted">{{ mapModeNotice }}</p>
+    </div>
 
     <div class="trip-map__layout">
       <section class="trip-map__stage">
-        <div v-show="realMapReady" ref="realMapElement" class="real-map" :class="{ loading }"></div>
-        <div v-if="!realMapReady" class="mock-map" :class="{ loading }">
-          <RoutePolyline
-            v-for="route in mockRouteLines"
-            :key="route.key"
-            :points="route.points"
-          />
-          <MapMarker
-            v-for="marker in markerPositions"
-            :key="marker.resource.place_id"
-            :resource="marker.resource"
-            :x="marker.x"
-            :y="marker.y"
-            :active="selectedPlaceId === marker.resource.place_id"
-            @select="selectResource"
-          />
-          <MapInfoWindow
-            v-if="selectedMarker"
-            :resource="selectedMarker.resource"
-            :x="selectedMarker.x"
-            :y="selectedMarker.y"
-          />
-          <div v-if="!validResources.length" class="mock-map__empty">
-            当前没有可渲染 Marker 的地点
+        <div class="trip-map__canvas">
+          <div ref="realMapElement" class="real-map" :class="{ ready: realMapReady, loading }"></div>
+          <div v-if="!realMapReady" class="mock-map" :class="{ loading }">
+            <RoutePolyline
+              v-for="route in mockRouteLines"
+              :key="route.key"
+              :points="route.points"
+            />
+            <MapMarker
+              v-for="marker in markerPositions"
+              :key="marker.resource.place_id"
+              :resource="marker.resource"
+              :x="marker.x"
+              :y="marker.y"
+              :active="selectedPlaceId === marker.resource.place_id"
+              @select="selectResource"
+            />
+            <MapInfoWindow
+              v-if="hasManualSelection && selectedMarker"
+              :resource="selectedMarker.resource"
+              :x="selectedMarker.x"
+              :y="selectedMarker.y"
+            />
+            <div v-if="!validResources.length" class="mock-map__empty">
+              当前没有可渲染 Marker 的地点
+            </div>
           </div>
         </div>
 
-        <footer class="trip-map__legend">
-          <span class="attraction">景点</span>
-          <span class="hotel">酒店</span>
-          <span class="restaurant">餐厅</span>
-          <span class="route">高德实际路线</span>
-          <span class="warning">{{ realMapReady ? '真实高德地图 · 橙色描边为坐标待确认' : '轻量地图 · 只绘制高德已验证路线' }}</span>
-        </footer>
       </section>
 
-      <PlaceList
-        :resources="resources"
-        :selected-place-id="selectedPlaceId"
-        @select="selectResource"
-      />
+      <aside class="trip-map__side">
+        <section v-if="selectedResource" class="selected-place">
+          <div>
+            <span>{{ placeTypeLabel(selectedResource) }}</span>
+            <strong>{{ selectedResource.name }}</strong>
+            <p>{{ selectedResource.short_description || selectedResource.recommend_reason || '暂无地点摘要' }}</p>
+          </div>
+          <dl>
+            <div>
+              <dt>预算</dt>
+              <dd>{{ selectedResource.price !== null && selectedResource.price !== undefined ? `约 ${selectedResource.price} 元` : '待定' }}</dd>
+            </div>
+            <div>
+              <dt>时间</dt>
+              <dd>{{ selectedResource.open_time || '全天' }}</dd>
+            </div>
+            <div>
+              <dt>坐标</dt>
+              <dd>{{ selectedResource.verified === false ? '待确认' : '已校验' }}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="map-summary">
+          <article><span>地点</span><strong>{{ validResources.length }}</strong></article>
+          <article><span>路线</span><strong>{{ amapRoutes.length }}</strong></article>
+          <article><span>待确认</span><strong>{{ invalidResources.length }}</strong></article>
+        </section>
+
+        <PlaceList
+          :resources="resources"
+          :selected-place-id="selectedPlaceId"
+          @select="selectResource"
+        />
+      </aside>
     </div>
   </section>
 </template>
@@ -97,6 +126,7 @@ const realMapReady = ref(false)
 const realMapError = ref('')
 const amapInstance = ref(null)
 const amapInfoWindow = ref(null)
+const hasManualSelection = ref(false)
 let amapApi = null
 let amapMarkers = []
 let amapPolylines = []
@@ -148,6 +178,10 @@ const markerPositions = computed(() => {
 
 const selectedMarker = computed(() => {
   return markerPositions.value.find((marker) => marker.resource.place_id === selectedPlaceId.value) || markerPositions.value[0] || null
+})
+
+const selectedResource = computed(() => {
+  return resources.value.find((resource) => resource.place_id === selectedPlaceId.value) || resources.value[0] || null
 })
 
 const amapRoutes = computed(() => props.routes.filter(isVerifiedAmapRoute))
@@ -211,6 +245,7 @@ watch(
 watch(
   selectedPlaceId,
   (placeId) => {
+    if (!hasManualSelection.value) return
     const resource = validResources.value.find((item) => item.place_id === placeId)
     if (resource) {
       focusAmapResource(resource)
@@ -219,6 +254,7 @@ watch(
 )
 
 function selectResource(resource) {
+  hasManualSelection.value = true
   mapStore.selectPlace(resource.place_id)
   focusAmapResource(resource)
   emit('select', resource)
@@ -244,6 +280,8 @@ async function initializeRealMap() {
     })
     realMapReady.value = true
     realMapError.value = ''
+    await nextTick()
+    amapInstance.value.resize()
     renderAmapMarkers()
     renderAmapRoutes()
   } catch (error) {
@@ -273,8 +311,6 @@ function renderAmapMarkers() {
 
   if (amapMarkers.length) {
     setAmapFitView()
-    const selected = validResources.value.find((resource) => resource.place_id === selectedPlaceId.value) || validResources.value[0]
-    if (selected) focusAmapResource(selected)
   }
 }
 
@@ -422,6 +458,14 @@ function stagger(index) {
   return ((index % 3) - 1) * 2.5
 }
 
+function placeTypeLabel(resource) {
+  return {
+    attraction: '景点',
+    hotel: '酒店',
+    restaurant: '餐饮'
+  }[resource?.place_type] || '地点'
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
@@ -430,7 +474,12 @@ function clamp(value, min, max) {
 <style scoped>
 .trip-map {
   display: grid;
-  gap: 18px;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .trip-map__head {
@@ -438,12 +487,14 @@ function clamp(value, min, max) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  padding: 0 4px;
 }
 
 .trip-map__head h2 {
   margin: 0;
   color: #101827;
   font-size: 24px;
+  line-height: 1.18;
 }
 
 .trip-map__head span {
@@ -452,14 +503,41 @@ function clamp(value, min, max) {
   color: #667386;
 }
 
+.trip-map__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.status-pill {
+  min-height: 40px;
+  padding: 10px 13px;
+  border-radius: 999px;
+  background: #e9fbf7;
+  color: #0f8f7e;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.trip-map__alerts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .trip-map__notice {
   margin: 0;
-  padding: 12px 14px;
+  min-height: 34px;
+  padding: 8px 11px;
   border: 1px solid #fed7aa;
-  border-radius: 16px;
+  border-radius: 999px;
   background: #fff7ed;
   color: #b45309;
+  font-size: 12px;
   font-weight: 800;
+  line-height: 1.35;
 }
 
 .trip-map__notice.muted {
@@ -468,16 +546,12 @@ function clamp(value, min, max) {
   color: #647286;
 }
 
-.trip-map__notice.route {
-  border-color: #c7d2fe;
-  background: #eef3ff;
-  color: #3043a4;
-}
-
 .trip-map__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  gap: 22px;
+  grid-template-columns: minmax(760px, 1fr) 440px;
+  align-items: stretch;
+  gap: 18px;
+  min-height: 0;
 }
 
 .trip-map__stage {
@@ -487,11 +561,40 @@ function clamp(value, min, max) {
   min-width: 0;
 }
 
-.real-map {
+.trip-map__canvas {
+  position: relative;
+  z-index: 0;
+  height: clamp(620px, 72vh, 820px);
   min-height: 620px;
   overflow: hidden;
   border: 1px solid rgba(218, 228, 238, 0.9);
-  border-radius: 24px;
+  border-radius: 22px;
+  background: #f3f7fb;
+  box-shadow: 0 22px 58px rgba(31, 41, 55, 0.1);
+  isolation: isolate;
+  contain: layout paint;
+}
+
+.real-map,
+.mock-map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.real-map {
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.real-map.ready {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .real-map.loading {
@@ -499,11 +602,7 @@ function clamp(value, min, max) {
 }
 
 .mock-map {
-  position: relative;
-  min-height: 620px;
-  overflow: hidden;
-  border: 1px solid rgba(218, 228, 238, 0.9);
-  border-radius: 24px;
+  z-index: 2;
   background:
     linear-gradient(90deg, rgba(79, 101, 255, 0.09) 1px, transparent 1px),
     linear-gradient(rgba(79, 101, 255, 0.09) 1px, transparent 1px),
@@ -533,39 +632,121 @@ function clamp(value, min, max) {
   font-weight: 900;
 }
 
-.trip-map__legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+:deep(.amap-container),
+:deep(.amap-maps),
+:deep(.amap-layers),
+:deep(.amap-layer),
+:deep(.amap-e) {
+  max-width: 100%;
+  max-height: 100%;
 }
 
-.trip-map__legend span {
-  padding: 7px 10px;
+.trip-map__side {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  height: clamp(620px, 72vh, 820px);
+  overflow: hidden;
+}
+
+.selected-place {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #dfe8f2;
+  border-radius: 20px;
+  background: #fbfdff;
+  box-shadow: 0 18px 40px rgba(31, 41, 55, 0.07);
+}
+
+.selected-place span {
+  width: fit-content;
+  padding: 5px 9px;
   border-radius: 999px;
-  background: #eef3ff;
-  color: #3043a4;
+  background: #e9fbf7;
+  color: #0f8f7e;
   font-size: 12px;
   font-weight: 900;
 }
 
-.trip-map__legend .hotel {
-  background: #e9fbf7;
-  color: #0f766e;
+.selected-place strong {
+  display: block;
+  margin-top: 8px;
+  color: #101827;
+  font-size: 19px;
+  line-height: 1.25;
 }
 
-.trip-map__legend .restaurant {
-  background: #fff4df;
-  color: #b45309;
+.selected-place p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 8px 0 0;
+  color: #647286;
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
-.trip-map__legend .route {
-  background: #edf2ff;
-  color: #3f5cf6;
+.selected-place dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
 }
 
-.trip-map__legend .warning {
-  background: #fff8f1;
-  color: #b45309;
+.selected-place dl div {
+  padding: 9px 10px;
+  border-radius: 14px;
+  background: #f4f7fb;
+}
+
+.selected-place dt,
+.selected-place dd {
+  margin: 0;
+}
+
+.selected-place dt {
+  color: #667386;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.selected-place dd {
+  margin-top: 4px;
+  color: #101827;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.map-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.map-summary article {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  padding: 10px 11px;
+  border: 1px solid #e1e9f2;
+  border-radius: 16px;
+  background: #f8fbff;
+}
+
+.map-summary span {
+  color: #667386;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.map-summary strong {
+  color: #101827;
+  font-size: 22px;
+  line-height: 1;
 }
 
 :deep(.amap-resource-marker) {
@@ -618,7 +799,7 @@ function clamp(value, min, max) {
 
 :deep(.amap-info-card) {
   display: grid;
-  width: 260px;
+  width: 240px;
   gap: 6px;
 }
 
@@ -640,6 +821,13 @@ function clamp(value, min, max) {
   line-height: 1.55;
 }
 
+:deep(.amap-info-card p) {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 :deep(.amap-info-card b) {
   color: #b45309;
   font-size: 12px;
@@ -650,9 +838,13 @@ function clamp(value, min, max) {
     grid-template-columns: 1fr;
   }
 
-  .real-map,
-  .mock-map {
+  .trip-map__canvas {
     min-height: 520px;
+  }
+
+  .trip-map__side {
+    height: auto;
+    overflow: visible;
   }
 }
 
@@ -661,9 +853,18 @@ function clamp(value, min, max) {
     flex-direction: column;
   }
 
-  .real-map,
-  .mock-map {
+  .trip-map {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .trip-map__canvas {
+    height: 440px;
     min-height: 440px;
+  }
+
+  .map-summary {
+    grid-template-columns: 1fr;
   }
 }
 </style>
