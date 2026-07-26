@@ -1,0 +1,28 @@
+{
+  "passed": false,
+  "issues": [
+    {
+      "code": "WALKING_LIMIT_EXCEEDED",
+      "severity": "warning",
+      "day": 2,
+      "item_id": null,
+      "message": "第2天预计步行7200米，接近用户限制8000米",
+      "suggestion": "可考虑使用公交替代部分步行路段"
+    },
+    {
+      "code": "TIME_CONFLICT",
+      "severity": "error",
+      "day": 1,
+      "item_id": "day1_item_004",
+      "message": "天坛公园到达时间13:30，但路线耗时预计45分钟，午餐结束13:00，存在冲突",
+      "suggestion": "将天坛公园开始时间推迟至13:45"
+    }
+  ],
+  "metrics": {
+    "budget_match_rate": 0.95,
+    "interest_coverage_rate": 0.8,
+    "must_visit_coverage_rate": 1.0,
+    "time_valid": false,
+    "walking_limit_valid": true
+  }
+}
