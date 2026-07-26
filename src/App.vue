@@ -1155,7 +1155,7 @@ async function submitAuth() {
         </div>
 
         <template v-if="hasPlan">
-          <section class="panel map-panel">
+          <section class="map-workspace">
             <TripMap
               :resources="mapResources"
               :routes="recommendedRoutes"
