@@ -64,13 +64,14 @@ const warningText = computed(() => {
 <style scoped>
 .place-card {
   display: grid;
-  gap: 10px;
-  padding: 15px;
+  gap: 9px;
+  padding: 14px;
   border: 1px solid #e1e9f2;
-  border-radius: 18px;
-  background: #fff;
+  border-radius: 16px;
+  background: #fbfdff;
   text-align: left;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  cursor: pointer;
 }
 
 .place-card:hover,
@@ -112,12 +113,21 @@ const warningText = computed(() => {
 .place-card strong {
   color: #101827;
   font-size: 16px;
+  line-height: 1.35;
 }
 
 .place-card p {
   margin: 0;
   color: #647286;
   line-height: 1.6;
+}
+
+.place-card > p,
+.place-card footer p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .place-card__meta,
@@ -141,12 +151,13 @@ const warningText = computed(() => {
 .place-card footer {
   display: grid;
   gap: 8px;
-  padding-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid #edf2f7;
 }
 
 .place-card footer p {
   color: #273244;
+  font-size: 13px;
   font-weight: 750;
 }
 
