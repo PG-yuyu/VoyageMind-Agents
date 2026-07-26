@@ -32,7 +32,7 @@ class ChatbotService:
             return
 
         try:
-            load_dotenv(project_root / ".env", override=True)
+            load_dotenv(project_root / ".env", override=True, encoding="utf-8-sig")
             if str(chat_src) not in sys.path:
                 sys.path.insert(0, str(chat_src))
             cwd = Path.cwd()
