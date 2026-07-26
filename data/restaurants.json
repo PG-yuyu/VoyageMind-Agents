@@ -1,82 +1,594 @@
 [
   {
-    "place_id": "restaurant_001",
-    "name": "北京家常菜馆",
-    "place_type": "restaurant",
-    "city": "北京",
-    "area": "东城区",
-    "tags": ["本地风味", "家常菜", "中等预算"],
-    "price": 80,
-    "open_time": "11:00-21:30",
-    "coordinate": {
-      "longitude": 116.401,
-      "latitude": 39.915
-    },
-    "description": "提供北京家常菜，适合作为景点游览后的正餐选择。",
-    "suitable_for": ["朋友出游", "家庭游客", "本地风味体验"]
-  },
-  {
-    "place_id": "restaurant_002",
-    "name": "护国寺小吃",
-    "place_type": "restaurant",
-    "city": "北京",
-    "area": "西城区",
-    "tags": ["小吃", "老字号", "经济型"],
-    "price": 45,
-    "open_time": "06:00-21:00",
-    "coordinate": {
-      "longitude": 116.373,
-      "latitude": 39.933
-    },
-    "description": "北京传统小吃店，适合体验豆汁、焦圈等本地饮食。",
-    "suitable_for": ["学生", "小吃爱好者", "预算敏感游客"]
-  },
-  {
     "place_id": "tj_restaurant_001",
-    "name": "狗不理包子山东路店",
+    "name": "狗不理（天津总店）",
     "place_type": "restaurant",
     "city": "天津",
     "area": "和平区",
-    "tags": ["本地风味", "老字号", "包子", "中等预算"],
-    "price": 90,
-    "open_time": "10:00-21:00",
+    "tags": [
+      "天津菜",
+      "包子",
+      "老字号",
+      "正餐"
+    ],
+    "price": null,
+    "open_time": null,
     "coordinate": {
       "longitude": 117.198932,
       "latitude": 39.124989
     },
-    "description": "天津代表性老字号包子店，适合体验天津传统风味。",
-    "suitable_for": ["本地风味体验", "朋友出游", "初次到访游客"]
+    "description": "狗不理天津总店位于山东路77号，经营包子及天津菜等餐饮品类，门店营业时间、人均消费和预约规则以品牌及平台页面为准。",
+    "suitable_for": []
   },
   {
     "place_id": "tj_restaurant_002",
-    "name": "南市食品街",
-    "place_type": "restaurant",
-    "city": "天津",
-    "area": "和平区",
-    "tags": ["小吃", "本地风味", "经济型", "老字号"],
-    "price": 50,
-    "open_time": "09:00-21:30",
-    "coordinate": {
-      "longitude": 117.177585,
-      "latitude": 39.132113
-    },
-    "description": "聚合多种天津小吃和传统食品，适合预算友好的本地风味体验。",
-    "suitable_for": ["学生", "小吃爱好者", "预算敏感游客"]
-  },
-  {
-    "place_id": "tj_restaurant_003",
-    "name": "耳朵眼炸糕东北角店",
+    "name": "耳朵眼会馆（鼓楼商业街店）",
     "place_type": "restaurant",
     "city": "天津",
     "area": "南开区",
-    "tags": ["小吃", "老字号", "甜点", "经济型"],
-    "price": 20,
-    "open_time": "08:00-20:30",
+    "tags": [
+      "天津菜",
+      "清真菜",
+      "老字号",
+      "正餐",
+      "可预约"
+    ],
+    "price": 238,
+    "open_time": null,
     "coordinate": {
-      "longitude": 117.190112,
-      "latitude": 39.14668
+      "longitude": 117.182012,
+      "latitude": 39.141885
     },
-    "description": "天津传统小吃炸糕，适合作为古文化街周边的轻量餐饮补充。",
-    "suitable_for": ["学生", "小吃爱好者", "本地风味体验"]
+    "description": "耳朵眼会馆鼓楼商业街店位于鼓楼东街12号，经营天津菜和清真菜，公开平台人均消费参考值为238元，菜单和营业时段会动态调整。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_003",
+    "name": "桂园餐厅（五大道店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "和平区",
+    "tags": [
+      "天津菜",
+      "正餐",
+      "提供包间"
+    ],
+    "price": 110,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.200138,
+      "latitude": 39.112951
+    },
+    "description": "桂园餐厅五大道店位于成都道62号，经营天津菜和正餐菜品，公开平台人均区间上限约110元，营业时间和包间情况需按门店确认。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_004",
+    "name": "红旗饭庄（总店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "南开区",
+    "tags": [
+      "天津菜",
+      "老字号",
+      "正餐"
+    ],
+    "price": 76,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.125183,
+      "latitude": 39.138977
+    },
+    "description": "红旗饭庄总店位于黄河道480号，经营天津菜和正餐菜品，公开平台人均消费参考值为76元，菜单与营业时段按门店页面调整。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_005",
+    "name": "砂锅李（九江路店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "河西区",
+    "tags": [
+      "天津菜",
+      "砂锅",
+      "正餐",
+      "提供包间"
+    ],
+    "price": 70,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.215236,
+      "latitude": 39.109692
+    },
+    "description": "砂锅李九江路店位于九江路46号，经营天津菜、砂锅和正餐菜品，公开平台人均消费参考值为70元，并记录有包间和停车信息。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_006",
+    "name": "起士林大饭店（小白楼店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "和平区",
+    "tags": [
+      "西餐",
+      "老字号",
+      "正餐",
+      "提供包间"
+    ],
+    "price": 156,
+    "open_time": "11:00-14:00；晚餐时段以门店公告为准",
+    "coordinate": {
+      "longitude": 117.215426,
+      "latitude": 39.116339
+    },
+    "description": "起士林大饭店小白楼店位于浙江路33号，经营西餐和烘焙等品类，公开平台人均消费参考值为156元，晚餐时段需向门店确认。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_007",
+    "name": "成桂餐厅（河北路店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "和平区",
+    "tags": [
+      "西餐",
+      "近代建筑",
+      "正餐"
+    ],
+    "price": 150,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.207376,
+      "latitude": 39.110509
+    },
+    "description": "成桂餐厅河北路店位于河北路287至289号疙瘩楼，经营西餐，公开平台人均消费参考值约150元，坐标采用同址疙瘩楼建筑。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_008",
+    "name": "津菜典藏（天津之眼店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "河北区",
+    "tags": [
+      "天津菜",
+      "正餐",
+      "海河沿线"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.191889,
+      "latitude": 39.154082
+    },
+    "description": "津菜典藏天津之眼店位于天纬路22号，经营天津菜和正餐菜品，门店靠近永乐桥，营业时间、人均消费和预约规则需按平台查询。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_009",
+    "name": "青年餐厅（津湾店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "和平区",
+    "tags": [
+      "中餐",
+      "正餐",
+      "商场门店",
+      "地铁站附近"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.20713,
+      "latitude": 39.132001
+    },
+    "description": "青年餐厅津湾店位于津湾广场A栋，经营中餐和正餐菜品，高德地图标注津湾广场地铁站B口步行约50米。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_010",
+    "name": "燕春楼清真餐厅",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "红桥区",
+    "tags": [
+      "清真菜",
+      "老字号",
+      "正餐"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.192617,
+      "latitude": 39.147263
+    },
+    "description": "燕春楼清真餐厅位于张自忠路7号海河华鼎大厦A座底商，经营清真正餐，清真身份、菜单、人均和营业时间需以门店公示为准。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_011",
+    "name": "普天和酒楼（中山路店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "河北区",
+    "tags": [
+      "天津菜",
+      "正餐",
+      "提供包间"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.196078,
+      "latitude": 39.153365
+    },
+    "description": "普天和酒楼中山路店位于中山路川云里裙房，经营中餐和正餐菜品，门店人均、营业时间、包间和预约方式需按公开平台复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_012",
+    "name": "李记锅巴菜铺（洪湖里店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "红桥区",
+    "tags": [
+      "锅巴菜",
+      "早餐",
+      "清真菜",
+      "小吃"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.158832,
+      "latitude": 39.170169
+    },
+    "description": "李记锅巴菜铺洪湖里店位于礼貌楼小区东区附近，经营锅巴菜等早点，地图平台将门店标注为清真餐饮，营业时段和人均需复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_013",
+    "name": "金环西餐厅（平山道店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "河西区",
+    "tags": [
+      "西餐",
+      "正餐",
+      "地铁站附近"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.180817,
+      "latitude": 39.09735
+    },
+    "description": "金环西餐厅平山道店位于平山道53号，经营综合西餐，高德地图标注天塔地铁站B口步行约340米，营业时间和人均需复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_014",
+    "name": "上海米线（滨江道店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "和平区",
+    "tags": [
+      "上海菜",
+      "米线",
+      "快餐",
+      "商场门店"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.198135,
+      "latitude": 39.124008
+    },
+    "description": "上海米线滨江道店位于滨江道208号友谊新天地广场B区1层，经营上海风味米线和快餐，商场及门店营业时间需分别确认。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_015",
+    "name": "港厨粤菜海鲜（台儿庄路店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "河西区",
+    "tags": [
+      "粤菜",
+      "海鲜",
+      "正餐"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.2476,
+      "latitude": 39.085368
+    },
+    "description": "港厨粤菜海鲜台儿庄路店位于台儿庄路985号海中鲜市场内，经营粤菜和海鲜，海鲜时价、包间、停车和营业时间需按门店确认。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_016",
+    "name": "渔民新村（总店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "滨海新区",
+    "tags": [
+      "海鲜",
+      "天津菜",
+      "正餐"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.739152,
+      "latitude": 39.122892
+    },
+    "description": "渔民新村总店位于动漫中路126号动漫大厦A区，经营海鲜、八珍豆腐及天津菜，门店人均、营业时间和包间需按平台查询。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_017",
+    "name": "二姑包子（四马路店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "河北区",
+    "tags": [
+      "包子",
+      "快餐",
+      "早餐"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.198007,
+      "latitude": 39.162949
+    },
+    "description": "二姑包子四马路店位于月纬路42号附近月洁里，经营包子和快餐，早餐供应、营业时间、人均和外卖状态需按门店信息复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_018",
+    "name": "局儿烧烤火锅（生态城店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "滨海新区",
+    "tags": [
+      "烧烤",
+      "火锅",
+      "正餐"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.745149,
+      "latitude": 39.12067
+    },
+    "description": "局儿烧烤火锅生态城店位于天和新乐汇5号楼102至103号，经营烧烤、火锅和正餐菜品，营业时段与人均需按门店页面复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_019",
+    "name": "野果yeego（天津万象城店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "河西区",
+    "tags": [
+      "云贵菜",
+      "商场门店",
+      "正餐",
+      "地铁站附近"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.212897,
+      "latitude": 39.090011
+    },
+    "description": "野果yeego天津万象城店位于乐园道9号天津万象城L4层，经营云贵菜，高德地图标注文化中心地铁站K口步行约290米。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_020",
+    "name": "海底捞火锅（新开路店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "河东区",
+    "tags": [
+      "火锅",
+      "正餐",
+      "商场门店",
+      "可预约"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.218382,
+      "latitude": 39.140812
+    },
+    "description": "海底捞火锅新开路店位于新开路与华越道交叉口远洋新天地内，经营火锅，排号、预约、人均和营业时间按品牌门店页面变化。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_021",
+    "name": "利德顺小老饭庄（西马路店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "红桥区",
+    "tags": [
+      "清真菜",
+      "正餐",
+      "地铁站附近"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.171588,
+      "latitude": 39.142474
+    },
+    "description": "利德顺小老饭庄西马路店位于西马路水游城对面，经营清真正餐，高德地图标注西北角地铁站C口步行约400米。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_022",
+    "name": "东林餐厅五大道（河北路店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "和平区",
+    "tags": [
+      "天津菜",
+      "正餐",
+      "近代建筑街区"
+    ],
+    "price": 60,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.206751,
+      "latitude": 39.110951
+    },
+    "description": "东林餐厅五大道河北路店位于河北路林东大楼1号，经营天津菜，公开平台人均消费参考值约60元，营业时间和座位数量需复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_023",
+    "name": "老袁烧烤（开源道店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "红桥区",
+    "tags": [
+      "烧烤",
+      "正餐",
+      "室内外混合"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.141385,
+      "latitude": 39.186597
+    },
+    "description": "老袁烧烤开源道店位于丁字沽三号路与绥中路交口附近，经营烧烤和砂锅等品类，营业时段、人均和室外座位状态需复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_024",
+    "name": "二嫂子煎饼果子（卫津路总店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "和平区",
+    "tags": [
+      "煎饼馃子",
+      "早餐",
+      "小吃"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.179898,
+      "latitude": 39.114936
+    },
+    "description": "二嫂子煎饼果子卫津路总店位于卫津路与鞍山道交叉口东北角，经营煎饼馃子等小吃，营业时段、人均和外卖状态需复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_025",
+    "name": "永旺羊汤（红桥总店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "红桥区",
+    "tags": [
+      "清真菜",
+      "羊汤",
+      "早餐",
+      "24小时营业"
+    ],
+    "price": null,
+    "open_time": "24小时营业",
+    "coordinate": {
+      "longitude": 117.164264,
+      "latitude": 39.173321
+    },
+    "description": "永旺羊汤红桥总店位于风貌里底商，经营羊汤和清真餐饮，高德地图用户信息记录门店24小时营业，仍需通过门店电话复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_026",
+    "name": "益发顺清真（金刚桥店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "河北区",
+    "tags": [
+      "清真菜",
+      "正餐",
+      "天津之眼附近"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.193013,
+      "latitude": 39.15014
+    },
+    "description": "益发顺清真金刚桥店位于中山路437号，经营清真正餐，门店靠近金刚桥，清真资质公示、人均、营业时间和包间需复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_027",
+    "name": "老六涮羊肉（金街店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "和平区",
+    "tags": [
+      "清真菜",
+      "涮羊肉",
+      "火锅",
+      "正餐"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.196007,
+      "latitude": 39.128056
+    },
+    "description": "老六涮羊肉金街店位于辽宁路66号，经营清真涮羊肉和火锅，人均、营业时间、预约和清真资质公示需按门店信息复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_028",
+    "name": "南楼煎饼（南楼总店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "河西区",
+    "tags": [
+      "煎饼馃子",
+      "早餐",
+      "小吃"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.22061,
+      "latitude": 39.093322
+    },
+    "description": "南楼煎饼南楼总店位于隆昌路与围堤道交口新跃里底商，经营煎饼馃子等小吃，营业时段、人均和外卖状态需按门店信息复核。",
+    "suitable_for": []
+  },
+  {
+    "place_id": "tj_restaurant_029",
+    "name": "洋味食屋（天大店）",
+    "place_type": "restaurant",
+    "city": "天津",
+    "area": "南开区",
+    "tags": [
+      "日本料理",
+      "正餐",
+      "校园周边"
+    ],
+    "price": null,
+    "open_time": null,
+    "coordinate": {
+      "longitude": 117.16387,
+      "latitude": 39.108511
+    },
+    "description": "洋味食屋天大店位于天津大学家属区四村，经营日本料理，人均、营业时间、预约、外卖和停车条件需按门店页面复核。",
+    "suitable_for": []
   }
 ]
