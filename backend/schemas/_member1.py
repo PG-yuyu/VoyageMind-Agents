@@ -1,31 +1,26 @@
-from datetime import datetime, timezone
+"""
+成员一原始模型（向后兼容）
+========================
+
+从原 backend/schemas.py 迁入，仅将 ApiResponse/now_iso/new_id 改为从 _base 导入。
+"""
+
+from __future__ import annotations
+
 from typing import Any, Literal
-from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from backend.schemas._base import ApiResponse, new_id, now_iso
 
-def now_iso() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-
-
-def new_id(prefix: str) -> str:
-    return f"{prefix}_{uuid4().hex[:12]}"
-
+# ── 类型别名 ────────────────────────────────────────────────────
 
 IntentType = Literal["create_trip", "modify_trip", "travel_qa"]
 SessionStatus = Literal[
     "active", "waiting_for_user", "planning", "completed", "failed", "closed"
 ]
 
-
-class ApiResponse(BaseModel):
-    success: bool = True
-    code: str = "OK"
-    message: str = "操作成功"
-    data: Any = None
-    trace_id: str = Field(default_factory=lambda: new_id("trace"))
-    timestamp: str = Field(default_factory=now_iso)
+# ── 请求/响应模型 ────────────────────────────────────────────────
 
 
 class CreateSessionRequest(BaseModel):
