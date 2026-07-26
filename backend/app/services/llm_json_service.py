@@ -39,6 +39,17 @@ class LLMJsonService:
 
         parsed = self._parse_json_object(str(raw_reply))
         if parsed is None:
+            retry_prompt = (
+                f"{user_prompt}\n\n"
+                "上一次输出不是合法 JSON。请严格只返回一个 JSON 对象，"
+                "不要 Markdown，不要解释，不要代码块。"
+            )
+            try:
+                raw_reply = self.chatbot_service.chat(system_prompt, retry_prompt)
+            except Exception as exc:
+                raise ModelDecisionError("大模型调用失败，请检查配置后重试") from exc
+            parsed = self._parse_json_object(str(raw_reply))
+        if parsed is None:
             raise ModelDecisionError("大模型输出不是合法 JSON，请重新调用模型重试")
         return parsed
 

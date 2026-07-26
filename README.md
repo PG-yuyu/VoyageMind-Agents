@@ -212,7 +212,7 @@ VITE_AMAP_JS_KEY=your-amap-js-key
 VITE_AMAP_SECURITY_CODE=your-security-code
 ```
 
-> 不配置 DeepSeek Key 时，系统会自动使用规则兜底（Mock 模式），便于功能调试。
+> 当前推荐使用 `deepseek-v4-flash`。不配置 DeepSeek Key 时，系统会自动使用规则兜底（Mock 模式），便于功能调试。
 
 ### 2. 启动后端
 

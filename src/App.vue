@@ -122,6 +122,7 @@ const smartAdjustPreview = ref(null)
 const appliedAdjustment = ref('')
 const selectedPlace = ref(null)
 const recommendationResult = ref(null)
+const currentItineraryPayload = ref(null)
 const recommendedRoutes = ref([])
 
 // 智能修改状态：连接后端
@@ -302,6 +303,10 @@ const extraDayTemplates = [
 const activeItinerary = computed(() => itineraryDays.value.find((day) => day.day === activeDay.value) || itineraryDays.value[0])
 const fallbackMapPlaceIds = ['tj_hotel_002', 'tj_place_003', 'tj_restaurant_002']
 const amapRouteCount = computed(() => recommendedRoutes.value.filter(isVerifiedAmapRoute).length)
+const itinerarySourceText = computed(() => currentItineraryPayload.value
+  ? '当前行程来自后端智能体生成结果，后续可继续对话修改。'
+  : '当前为本地演示方案，接口返回完整行程后会自动替换。'
+)
 const mapPlaceIds = computed(() => {
   const ids = recommendationPlaces(recommendationResult.value)
     .map((place) => place.place_id)
@@ -365,6 +370,7 @@ function persistState() {
     currentUser: currentUser.value,
     isAuthenticated: isAuthenticated.value,
     recommendationResult: recommendationResult.value,
+    currentItineraryPayload: currentItineraryPayload.value,
     recommendedRoutes: recommendedRoutes.value,
     mapResources: mapResources.value,
     budget: budget.value,
@@ -405,6 +411,7 @@ function restorePersistedState() {
   currentUser.value = payload.currentUser || null
   isAuthenticated.value = Boolean(payload.isAuthenticated && payload.currentUser)
   recommendationResult.value = payload.recommendationResult || null
+  currentItineraryPayload.value = payload.currentItineraryPayload || null
   recommendedRoutes.value = Array.isArray(payload.recommendedRoutes) ? payload.recommendedRoutes : []
   mapResources.value = Array.isArray(payload.mapResources) && payload.mapResources.length
     ? payload.mapResources
@@ -521,6 +528,15 @@ function applyRecommendationPayload(response) {
   }
 }
 
+function applyItineraryPayload(response, fallbackText = '') {
+  currentItineraryPayload.value = response.itinerary || null
+  if (currentItineraryPayload.value && applyGeneratedItinerary(currentItineraryPayload.value)) {
+    syncBudgetFromGeneratedItinerary(currentItineraryPayload.value)
+    return
+  }
+  syncItineraryDays(fallbackText)
+}
+
 function fallbackRecommendationResources() {
   const resources = resourcesFromRecommendationResult(recommendationResult.value)
   return resources.length ? resources : getMockMapResources()
@@ -580,6 +596,156 @@ function normalizeMapResource(resource) {
     verified: resource.verified !== false,
     tags: Array.isArray(resource.tags) ? [...resource.tags] : []
   }
+}
+
+function applyGeneratedItinerary(itinerary) {
+  if (!itinerary || !Array.isArray(itinerary.days) || !itinerary.days.length) return false
+
+  const placeMap = new Map(recommendationPlaces(recommendationResult.value).map((place) => [place.place_id, place]))
+  const hotelName = placeMap.get(itinerary.hotel_place_id)?.name || '推荐住宿'
+
+  itineraryDays.value = itinerary.days.map((day, index) => {
+    const items = Array.isArray(day.items) ? day.items : []
+    const uiItems = items.map((item) => generatedItemToUi(item, placeMap, hotelName))
+    return {
+      day: Number(day.day) || index + 1,
+      title: buildGeneratedDayTitle(uiItems, index + 1),
+      date: day.date || '生成日期',
+      walking: formatDistance(day.walking_distance_m),
+      cost: Math.round(Number(day.daily_cost) || 0),
+      hotel: hotelName,
+      routeTime: estimateRouteTime(uiItems),
+      area: buildGeneratedArea(uiItems),
+      highlights: buildGeneratedHighlights(uiItems),
+      items: uiItems.length ? uiItems : [{
+        time: day.start_time || '09:00',
+        title: '当天安排生成中',
+        tag: '规划',
+        desc: '后端已返回当天结构，但暂时没有具体地点。',
+        cost: 0,
+        route: '等待成员三补充详细时间线'
+      }]
+    }
+  })
+
+  activeDay.value = itineraryDays.value[0]?.day || 1
+  return true
+}
+
+function generatedItemToUi(item, placeMap, hotelName) {
+  const place = item.place_id ? placeMap.get(item.place_id) : null
+  const typeLabel = itemTypeLabel(item.item_type)
+  const title = place?.name || item.note || (item.item_type === 'return' ? `返回${hotelName}` : typeLabel)
+  const desc = place?.short_description
+    || place?.description
+    || place?.recommendation_reason
+    || place?.recommend_reason
+    || item.note
+    || '根据当前需求自动安排，可继续输入偏好进行调整。'
+  const route = buildItemRouteText(item)
+  return {
+    time: item.start_time || '待定',
+    title,
+    tag: typeLabel,
+    desc,
+    cost: Math.round(Number(item.total_cost ?? item.cost_per_person) || 0),
+    route,
+    detail: {
+      image: generatedPlaceImage(item.item_type),
+      title,
+      desc,
+      tips: [
+        item.end_time ? `${item.start_time || '待定'}-${item.end_time}` : '时间可调整',
+        route,
+        place?.address || '可在路线地图中查看位置'
+      ].filter(Boolean)
+    }
+  }
+}
+
+function itemTypeLabel(type) {
+  const labels = {
+    departure: '出发',
+    transport: '交通',
+    attraction: '景点',
+    lunch: '午餐',
+    dinner: '晚餐',
+    hotel: '住宿',
+    rest: '休息',
+    return: '返程'
+  }
+  return labels[type] || '安排'
+}
+
+function generatedPlaceImage(type) {
+  if (type === 'lunch' || type === 'dinner') {
+    return 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=900&q=80'
+  }
+  if (type === 'hotel') {
+    return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=900&q=80'
+  }
+  return 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80'
+}
+
+function buildItemRouteText(item) {
+  const duration = Number(item.duration_minutes) || 0
+  const timeText = item.end_time ? `${item.start_time || '待定'}-${item.end_time}` : '时间待定'
+  if (item.item_type === 'departure') return item.note || '从住宿点出发'
+  if (item.item_type === 'return') return item.note || '返回住宿点或取行李'
+  return duration ? `${timeText} · 预计停留 ${duration} 分钟` : timeText
+}
+
+function buildGeneratedDayTitle(items, fallbackDay) {
+  const mainStops = items
+    .filter((item) => !['出发', '返程', '交通'].includes(item.tag))
+    .map((item) => item.title)
+    .slice(0, 2)
+  return mainStops.length ? mainStops.join(' · ') : `第 ${fallbackDay} 天行程`
+}
+
+function buildGeneratedArea(items) {
+  const tags = [...new Set(items.map((item) => item.tag).filter((tag) => !['出发', '返程'].includes(tag)))]
+  return tags.slice(0, 3).join(' · ') || '天津'
+}
+
+function buildGeneratedHighlights(items) {
+  const stops = items.filter((item) => !['出发', '返程', '交通'].includes(item.tag)).slice(0, 3)
+  if (!stops.length) return ['按用户需求生成', '可继续对话修改', '保留时间弹性']
+  return stops.map((item) => `${item.time} ${item.title}`)
+}
+
+function estimateRouteTime(items) {
+  const minutes = items.reduce((sum, item) => {
+    const match = String(item.route || '').match(/停留\s*(\d+)\s*分钟/)
+    return sum + (match ? Number(match[1]) : 0)
+  }, 0)
+  return minutes ? `${minutes} 分钟` : '已预留'
+}
+
+function formatDistance(value) {
+  const meters = Number(value)
+  if (!Number.isFinite(meters) || meters <= 0) return '待校验'
+  return `${(meters / 1000).toFixed(1)} 公里`
+}
+
+function syncBudgetFromGeneratedItinerary(itinerary) {
+  const days = Array.isArray(itinerary.days) ? itinerary.days : []
+  const mealTypes = new Set(['lunch', 'dinner'])
+  const totals = days.flatMap((day) => day.items || []).reduce((acc, item) => {
+    const cost = Number(item.total_cost) || 0
+    if (mealTypes.has(item.item_type)) acc.food += cost
+    else if (item.item_type === 'attraction') acc.ticket += cost
+    else if (['transport', 'return', 'departure'].includes(item.item_type)) acc.transport += cost
+    else acc.other += cost
+    return acc
+  }, { ticket: 0, food: 0, transport: 0, other: 0 })
+
+  budget.value = [
+    { label: '门票', value: Math.round(totals.ticket), color: '#14b8a6' },
+    { label: '餐饮', value: Math.round(totals.food), color: '#f59e0b' },
+    { label: '交通', value: Math.round(totals.transport), color: '#ef6f88' },
+    { label: '其他', value: Math.round(totals.other), color: '#5b6cff' }
+  ]
 }
 
 function routeProgressText() {
@@ -695,6 +861,7 @@ function typeToTag(itype, item, place) {
 }
 
 function syncItineraryDays(text = '') {
+  currentItineraryPayload.value = null
   normalizeRequirementsFromText(text)
   const days = clampTripDays(requirements.value.days)
   const baseDays = defaultItineraryTemplates.slice(0, 2).map((day) => ({
@@ -819,7 +986,7 @@ function selectEditItem(item) {
 }
 
 function openPlaceDetail(item) {
-  selectedPlace.value = placeDetails[item.title] || {
+  selectedPlace.value = item.detail || placeDetails[item.title] || {
     image: 'https://images.unsplash.com/photo-1518156677180-95a2893f3e9f?auto=format&fit=crop&w=900&q=80',
     title: item.title,
     desc: item.desc,
@@ -1901,7 +2068,7 @@ async function submitAuth() {
               </article>
               <article>
                 <span>资料状态</span>
-                <p>当前推荐仍为演示方案，队友模块合并后会替换为真实景点、路线和预算结果。</p>
+                <p>{{ itinerarySourceText }}</p>
               </article>
             </section>
 

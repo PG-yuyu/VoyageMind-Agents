@@ -13,6 +13,8 @@ from backend.services.recommendation_integration_service import (
 )
 from backend.services.requirement_adapter import RequirementAdapter
 from backend.services.session_store import store
+from backend.services.itinerary_planner import generate_itinerary
+from backend.services.version_service import save_version
 from backend.services.workflow_service import WorkflowService
 
 
@@ -219,6 +221,7 @@ class CoordinatorAgent:
                         "recommendation_result": recommendation_output[
                             "recommendation_result"
                         ],
+                        "itinerary": itinerary,
                         "map_resources": recommendation_output["map_resources"],
                         "routes": recommendation_output["routes"],
                         "itinerary_generated": itinerary is not None,
@@ -228,7 +231,7 @@ class CoordinatorAgent:
                         ],
                     },
                 )
-                workflow_status = "planning"
+                workflow_status = "completed" if itinerary else "planning"
             store.agent_traces[session_id] = trace.model_dump()
 
         if recommendation_output is not None:
@@ -345,6 +348,41 @@ class CoordinatorAgent:
             for message in store.messages.get(session_id, [])
             if message.role in {"user", "assistant"} and message.content.strip()
         ]
+
+    def _generate_itinerary_from_recommendation(
+        self,
+        session_id: str,
+        requirements,
+        recommendation_output: dict,
+    ) -> dict | None:
+        """把成员二候选资源编排成成员三可继续修改的初始行程。"""
+
+        result = recommendation_output.get("recommendation_result") or {}
+        attractions = result.get("attractions") or []
+        restaurants = result.get("restaurants") or []
+        hotels = result.get("hotels") or []
+        if not attractions and not restaurants:
+            return None
+
+        requirements_payload = requirements.model_dump()
+        requirements_payload["session_id"] = session_id
+
+        itinerary = generate_itinerary(
+            requirements=requirements_payload,
+            hotel=hotels[0] if hotels else None,
+            attractions=attractions,
+            restaurants=restaurants,
+            route_mode_priority=requirements.transport_modes or ["walking", "transit"],
+            max_candidates_per_day=5,
+        )
+        saved_itinerary = save_version(itinerary)
+
+        session = store.sessions.get(session_id)
+        if session:
+            session.current_itinerary_id = saved_itinerary.itinerary_id
+            session.current_version = saved_itinerary.version
+
+        return saved_itinerary.model_dump(mode="json")
 
     def _is_smalltalk(self, message: str) -> bool:
         text = message.strip()

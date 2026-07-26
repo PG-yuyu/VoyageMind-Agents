@@ -6,7 +6,7 @@ DeepSeek LLM 调用封装
 
 用法:
     from clients.deepseek_llm import DeepSeekLLM
-    llm = DeepSeekLLM(api_key="sk-xxx", model="deepseek-chat")
+    llm = DeepSeekLLM(api_key="sk-xxx", model="deepseek-v4-flash")
     response = llm("你好")
 """
 
@@ -27,7 +27,7 @@ class DeepSeekLLM:
     默认从环境变量 DEEPSEEK_API_KEY 读取密钥，DEFAULT_MODEL 读取模型名。
 
     Attributes:
-        model: 模型名，优先从环境变量 DEFAULT_MODEL 读取，默认 deepseek-chat
+        model: 模型名，默认 deepseek-v4-flash
         temperature: 生成温度，默认 0.3（偏低以得到更确定的结果）
         max_tokens: 最大输出 token
     """
