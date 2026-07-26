@@ -35,6 +35,11 @@ coverage/
 .cache/
 .npm-cache/
 .vite/
+.chroma/
+.uv-cache/
+.claude/
+LangChain_RAG/backend/uploads/
+LangChain_RAG/frontend/dist/
 
 # editor / OS files
 .vscode/

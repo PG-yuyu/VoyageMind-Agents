@@ -1,0 +1,17 @@
+机器学习是人工智能（Artificial Intelligence，简称 AI）的一个重要分支。它研究如何通过经验自动改进计算机算法的性能。
+
+人工智能的概念最早由 John McCarthy 于 1956 年在达特茅斯会议上提出。此后，AI 经历了多次发展浪潮。
+
+深度学习（Deep Learning）是机器学习的一个子领域，基于人工神经网络。2012 年，Alex Krizhevsky 提出的 AlexNet 在 ImageNet 竞赛中取得突破性成果，推动了深度学习的快速发展。
+
+在自然语言处理（NLP）领域，Transformer 架构由 Vaswani 等人在 2017 年提出。BERT（Bidirectional Encoder Representations from Transformers）由 Google 于 2018 年发布。GPT 系列模型由 OpenAI 开发。检索增强生成（Retrieval-Augmented Generation, RAG）技术结合了信息检索和文本生成。
+
+在计算机视觉领域，卷积神经网络（CNN）被广泛应用于图像识别。YOLO（You Only Look Once）是一种实时目标检测算法。ResNet 通过残差连接解决了深层网络的退化问题。
+
+知识图谱（Knowledge Graph）是一种结构化的知识表示方式。Google 于 2012 年推出 Google Knowledge Graph。知识图谱使用节点和边来表示实体及其关系。
+
+图数据库（Graph Database）如 Neo4j 和 Ontotext GraphDB 专门用于存储和查询图结构数据。SPARQL 是 RDF 数据的标准查询语言。
+
+强化学习（Reinforcement Learning）是机器学习的另一个重要分支。DeepMind 的 AlphaGo 在 2016 年击败了围棋世界冠军李世石。
+
+迁移学习（Transfer Learning）利用在一个任务上学到的知识来帮助解决另一个相关任务。预训练模型（如 BERT、GPT）就是迁移学习的典型应用。
