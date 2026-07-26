@@ -79,8 +79,14 @@ function countByType(type) {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   align-content: start;
-  gap: 14px;
+  gap: 10px;
   min-width: 0;
+  min-height: 0;
+  padding: 14px;
+  border: 1px solid #dfe8f2;
+  border-radius: 20px;
+  background: #ffffff;
+  overflow: hidden;
 }
 
 .place-list header {
@@ -99,9 +105,9 @@ function countByType(type) {
 
 .place-list header strong {
   display: block;
-  margin-top: 5px;
+  margin-top: 3px;
   color: #101827;
-  font-size: 18px;
+  font-size: 17px;
 }
 
 .place-list header small {
@@ -114,12 +120,12 @@ function countByType(type) {
 .place-list__tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 7px;
 }
 
 .place-list__tabs button {
-  min-height: 34px;
-  padding: 0 10px;
+  min-height: 30px;
+  padding: 0 9px;
   border: 1px solid #d9e3ee;
   border-radius: 999px;
   background: #fff;
@@ -136,10 +142,11 @@ function countByType(type) {
 
 .place-list__items {
   display: grid;
-  max-height: none;
-  gap: 12px;
+  align-content: start;
+  min-height: 0;
+  gap: 9px;
   overflow: auto;
-  padding-right: 6px;
+  padding-right: 4px;
 }
 
 .place-list__empty {
