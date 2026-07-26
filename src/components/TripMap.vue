@@ -474,12 +474,12 @@ function clamp(value, min, max) {
 <style scoped>
 .trip-map {
   display: grid;
-  gap: 14px;
-  padding: 22px;
-  border: 1px solid rgba(218, 228, 238, 0.9);
-  border-radius: 26px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 26px 70px rgba(31, 41, 55, 0.08);
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .trip-map__head {
@@ -547,7 +547,7 @@ function clamp(value, min, max) {
 
 .trip-map__layout {
   display: grid;
-  grid-template-columns: minmax(620px, 1fr) 360px;
+  grid-template-columns: minmax(620px, 1fr) 380px;
   align-items: stretch;
   gap: 16px;
   min-height: 0;
@@ -567,8 +567,9 @@ function clamp(value, min, max) {
   min-height: 500px;
   overflow: hidden;
   border: 1px solid rgba(218, 228, 238, 0.9);
-  border-radius: 20px;
+  border-radius: 22px;
   background: #f3f7fb;
+  box-shadow: 0 22px 58px rgba(31, 41, 55, 0.1);
   isolation: isolate;
   contain: layout paint;
 }
@@ -656,6 +657,7 @@ function clamp(value, min, max) {
   border: 1px solid #dfe8f2;
   border-radius: 20px;
   background: #fbfdff;
+  box-shadow: 0 18px 40px rgba(31, 41, 55, 0.07);
 }
 
 .selected-place span {
