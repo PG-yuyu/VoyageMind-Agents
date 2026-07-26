@@ -14,10 +14,9 @@
       </div>
     </header>
 
-    <div v-if="error || mapModeNotice || routeStatusNotice" class="trip-map__alerts">
+    <div v-if="error || mapModeNotice" class="trip-map__alerts">
       <p v-if="error" class="trip-map__notice">{{ error }}</p>
       <p v-if="mapModeNotice" class="trip-map__notice muted">{{ mapModeNotice }}</p>
-      <p v-if="routeStatusNotice" class="trip-map__notice route">{{ routeStatusNotice }}</p>
     </div>
 
     <div class="trip-map__layout">
@@ -51,13 +50,6 @@
           </div>
         </div>
 
-        <footer class="trip-map__legend">
-          <span class="attraction">景点</span>
-          <span class="hotel">酒店</span>
-          <span class="restaurant">餐厅</span>
-          <span class="route">高德实际路线</span>
-          <span class="warning">{{ realMapReady ? '真实高德地图 · 橙色描边为坐标待确认' : '轻量地图 · 只绘制高德已验证路线' }}</span>
-        </footer>
       </section>
 
       <aside class="trip-map__side">
@@ -553,12 +545,6 @@ function clamp(value, min, max) {
   color: #647286;
 }
 
-.trip-map__notice.route {
-  border-color: #c7d2fe;
-  background: #eef3ff;
-  color: #3043a4;
-}
-
 .trip-map__layout {
   display: grid;
   grid-template-columns: minmax(620px, 1fr) 360px;
@@ -576,6 +562,7 @@ function clamp(value, min, max) {
 
 .trip-map__canvas {
   position: relative;
+  z-index: 0;
   height: clamp(500px, 58vh, 660px);
   min-height: 500px;
   overflow: hidden;
@@ -641,41 +628,6 @@ function clamp(value, min, max) {
   place-items: center;
   color: #647286;
   font-weight: 900;
-}
-
-.trip-map__legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.trip-map__legend span {
-  padding: 7px 10px;
-  border-radius: 999px;
-  background: #eef3ff;
-  color: #3043a4;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.trip-map__legend .hotel {
-  background: #e9fbf7;
-  color: #0f766e;
-}
-
-.trip-map__legend .restaurant {
-  background: #fff4df;
-  color: #b45309;
-}
-
-.trip-map__legend .route {
-  background: #edf2ff;
-  color: #3f5cf6;
-}
-
-.trip-map__legend .warning {
-  background: #fff8f1;
-  color: #b45309;
 }
 
 :deep(.amap-container),
