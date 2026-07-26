@@ -832,10 +832,14 @@ textarea {
   justify-self: center;
 }
 
-.page.map-page > .page-head,
 .page.map-page > :not(.page-head) {
   width: min(100%, calc(100vw - 64px));
   max-width: 1680px;
+}
+
+.page.map-page > .page-head {
+  width: min(100%, 1180px);
+  justify-self: center;
 }
 
 .page.map-page {
