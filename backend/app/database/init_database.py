@@ -1,2 +1,1 @@
 """Database initialization entry point."""
-

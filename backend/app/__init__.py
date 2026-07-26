@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 MODULE_NAME = "travel_resource_recommendation"
 MODULE_OWNER = "member2"
 STEP_TAG = "member2-step-1-init"

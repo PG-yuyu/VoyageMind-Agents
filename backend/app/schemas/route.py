@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-
 VALID_ROUTE_SOURCES = {"amap", "manual", "straight_line_estimation"}
 
 

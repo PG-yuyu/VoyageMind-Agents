@@ -5,13 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-
 VALID_PLACE_TYPES = {"attraction", "hotel", "restaurant"}
 
 
 @dataclass(frozen=True)
 class Coordinate:
     """地点经纬度坐标"""
+
     longitude: float
     latitude: float
 
@@ -35,6 +35,7 @@ class Coordinate:
 @dataclass(frozen=True)
 class Place:
     """景点、酒店、餐厅等旅游资源统一格式"""
+
     place_id: str
     name: str
     place_type: str

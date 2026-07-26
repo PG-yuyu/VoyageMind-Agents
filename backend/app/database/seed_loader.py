@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
-
 
 if __package__ in {None, ""}:
     backend_root = Path(__file__).resolve().parents[3]
@@ -39,7 +38,9 @@ def read_json_list(file_path: Path) -> list[dict[str, Any]]:
     return data
 
 
-def load_resource_file(file_name: str, data_dir: Path = DEFAULT_DATA_DIR) -> list[Place]:
+def load_resource_file(
+    file_name: str, data_dir: Path = DEFAULT_DATA_DIR
+) -> list[Place]:
     """读取单个资源文件并转换为地点模型。"""
 
     file_path = data_dir / file_name
@@ -99,4 +100,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

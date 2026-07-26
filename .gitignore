@@ -33,6 +33,7 @@ temp/
 .coverage
 coverage/
 .cache/
+.npm-cache/
 .vite/
 
 # editor / OS files

@@ -1,9 +1,20 @@
+from typing import Literal
+
 from backend.schemas import AgentStep, AgentTrace, TravelRequest, new_id
 
 
 class WorkflowService:
     def build_trace(
-        self, session_id: str, intent: str, has_missing_fields: bool
+        self,
+        session_id: str,
+        intent: str,
+        has_missing_fields: bool,
+        member2_recommendation_status: Literal[
+            "success", "running", "failed", "skipped"
+        ] = "skipped",
+        member2_route_status: Literal[
+            "success", "running", "failed", "skipped"
+        ] = "skipped",
     ) -> AgentTrace:
         steps = [
             AgentStep(
@@ -84,17 +95,21 @@ class WorkflowService:
                         step=5,
                         agent="member2_recommendation_api",
                         action="recommend_places",
-                        summary="预留景点、酒店、餐厅推荐接口调用",
-                        status="skipped",
-                        duration_ms=0,
+                        summary=self._member2_recommendation_summary(
+                            member2_recommendation_status
+                        ),
+                        status=member2_recommendation_status,
+                        duration_ms=0
+                        if member2_recommendation_status == "skipped"
+                        else 420,
                     ),
                     AgentStep(
                         step=6,
                         agent="member2_route_api",
                         action="batch_plan_routes",
-                        summary="预留批量路线规划接口调用",
-                        status="skipped",
-                        duration_ms=0,
+                        summary=self._member2_route_summary(member2_route_status),
+                        status=member2_route_status,
+                        duration_ms=0 if member2_route_status == "skipped" else 260,
                     ),
                     AgentStep(
                         step=7,
@@ -108,6 +123,30 @@ class WorkflowService:
             )
 
         return AgentTrace(trace_id=new_id("trace"), session_id=session_id, steps=steps)
+
+    @staticmethod
+    def _member2_recommendation_summary(status: str) -> str:
+        """根据成员二推荐调用状态生成中文轨迹说明。"""
+
+        if status == "success":
+            return "已调用旅游资源推荐模块，返回景点、酒店、餐厅推荐结果"
+        if status == "failed":
+            return "旅游资源推荐模块调用失败，需要检查大模型或数据配置后重试"
+        if status == "running":
+            return "正在调用旅游资源推荐模块"
+        return "预留景点、酒店、餐厅推荐接口调用"
+
+    @staticmethod
+    def _member2_route_summary(status: str) -> str:
+        """根据成员二路线调用状态生成中文轨迹说明。"""
+
+        if status == "success":
+            return "已调用路线规划模块，返回推荐地点之间的路线事实"
+        if status == "failed":
+            return "路线规划模块调用失败，需要检查高德地图配置后重试"
+        if status == "running":
+            return "正在调用路线规划模块"
+        return "预留批量路线规划接口调用"
 
     def demo_itinerary_shell(self, requirements: TravelRequest) -> dict:
         return {

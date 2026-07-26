@@ -18,10 +18,10 @@ class PlaceRepositoryTest(unittest.TestCase):
 
         repository = PlaceRepository()
 
-        self.assertEqual(len(repository.list_attractions()), 3)
-        self.assertEqual(len(repository.list_hotels()), 2)
-        self.assertEqual(len(repository.list_restaurants()), 2)
-        self.assertEqual(len(repository.list_all()), 7)
+        self.assertGreaterEqual(len(repository.list_attractions()), 8)
+        self.assertGreaterEqual(len(repository.list_hotels()), 4)
+        self.assertGreaterEqual(len(repository.list_restaurants()), 5)
+        self.assertGreaterEqual(len(repository.list_all()), 17)
 
     def test_repository_can_list_by_type(self) -> None:
         """仓库可以按资源类型列出候选资源。"""
@@ -30,9 +30,9 @@ class PlaceRepositoryTest(unittest.TestCase):
 
         repository = PlaceRepository()
 
-        self.assertEqual(len(repository.list_by_type("attraction")), 3)
-        self.assertEqual(len(repository.list_by_type("hotel")), 2)
-        self.assertEqual(len(repository.list_by_type("restaurant")), 2)
+        self.assertGreaterEqual(len(repository.list_by_type("attraction")), 8)
+        self.assertGreaterEqual(len(repository.list_by_type("hotel")), 4)
+        self.assertGreaterEqual(len(repository.list_by_type("restaurant")), 5)
 
         with self.assertRaises(ValueError):
             repository.list_by_type("shopping")

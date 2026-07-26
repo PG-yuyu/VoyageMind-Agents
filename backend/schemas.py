@@ -125,6 +125,9 @@ class ChatResponse(BaseModel):
     workflow_status: str
     requirements: TravelRequest | None = None
     itinerary: dict | None = None
+    recommendation_result: dict | None = None
+    map_resources: dict | None = None
+    routes: list[dict] | None = None
     agent_trace: dict | None = None
 
 
