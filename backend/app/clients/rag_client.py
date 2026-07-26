@@ -182,9 +182,13 @@ class LangChainRagServiceAdapter:
 
     @staticmethod
     def _default_project_root() -> Path:
-        """推断示例项目同级的 LangChain_RAG 目录。"""
+        """优先使用随主项目提交的 LangChain_RAG，兼容旧的同级目录。"""
 
-        return Path(__file__).resolve().parents[4] / "LangChain_RAG"
+        project_root = Path(__file__).resolve().parents[3]
+        bundled_root = project_root / "LangChain_RAG"
+        if bundled_root.exists():
+            return bundled_root
+        return project_root.parent / "LangChain_RAG"
 
 
 class RagClient:
