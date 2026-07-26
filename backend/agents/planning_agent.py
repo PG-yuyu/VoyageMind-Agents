@@ -512,11 +512,19 @@ class PlanningAgent:
         """解析 LLM 返回的 JSON，处理 markdown 代码块包裹。"""
         text = raw.strip()
         if text.startswith("```"):
-            first_nl = text.index("\n")
-            start = first_nl + 1
-            end = text.rfind("```")
-            if end > start:
-                text = text[start:end].strip()
+            if "\n" in text:
+                first_nl = text.index("\n")
+                start = first_nl + 1
+                end = text.rfind("```")
+                if end > start:
+                    text = text[start:end].strip()
+                else:
+                    text = text[first_nl + 1:].strip()
             else:
-                text = text[first_nl + 1:].strip()
+                # 单行格式: ```json{...}```
+                text = text[3:].strip()
+                if text.endswith("```"):
+                    text = text[:-3].strip()
+                if text.startswith("json"):
+                    text = text[4:].strip()
         return json.loads(text)

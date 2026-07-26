@@ -27,6 +27,7 @@ class BudgetSummary(BaseModel):
     transport_cost: float = Field(0.0, ge=0, description="交通总费用（元）")
     other_cost: float = Field(0.0, ge=0, description="其他费用（元）")
     total_cost: float = Field(0.0, ge=0, description="合计（元）")
+    hotel_nights: int = Field(0, ge=0, description="入住晚数（统计 hotel item 数量）")
     total_budget: float = Field(0.0, ge=0, description="用户总预算（0=不限）")
     remaining_budget: float = Field(0.0, description="剩余预算（可为负）")
     over_budget: bool = Field(False, description="是否超预算")

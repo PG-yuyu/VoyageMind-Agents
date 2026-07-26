@@ -5,10 +5,10 @@
 由 Python 确定性规则计算，不依赖大模型。
 
 计算规则:
-- 酒店: 单价 × 入住晚数（天数 - 1）
-- 门票: 单价 × 人数（仅 attraction 类型，按 per_person 计价）
-- 餐饮: 人均 × 人数 × 餐数
-- 交通: 按路线距离估算或实际费用累加
+- 酒店: 统计行程中所有 hotel 类型 item 的费用（可多酒店）；无数据时用天数-1 估算
+- 门票: attraction 类型 item 的 cost_per_person × 人数
+- 餐饮: lunch/dinner 类型 item 的 total_cost 累加
+- 交通: 路线数据估算或每日默认值
 """
 
 from __future__ import annotations
@@ -85,14 +85,29 @@ def calculate_budget(
     )
 
     # ── 酒店费用 ──────────────────────────────────────────────────
-    # 天数=N 则住 N-1 晚；若没指定酒店单价，按用户 hotel_budget_per_night 估算
-    nights = max(days - 1, 1)
-    hotel_price: float = _safe_float(
-        (_get_place(it, "hotel") or {}).get("price"), default=0.0
-    )
-    if hotel_price == 0.0:
-        hotel_price = hotel_budget_per_night
-    hotel_cost = hotel_price * nights
+    # 统计行程中所有 hotel 类型的 item（支持多酒店/换酒店场景）
+    hotel_cost = 0.0
+    hotel_nights = 0
+    for day_data in it.get("days", []):
+        for item in day_data.get("items", []):
+            if item.get("item_type") == ItemType.HOTEL.value:
+                hotel_nights += 1
+                hotel_cost += _safe_float(item.get("total_cost"))
+                if hotel_cost == 0.0:
+                    # total_cost 为空时，用 _place.price 补
+                    place = item.get("_place") or {}
+                    hotel_cost += _safe_float(place.get("price")) * people
+
+    # 行程中没有 hotel item → 用天数估算
+    if hotel_nights == 0:
+        nights = max(days - 1, 1)
+        hotel_price = hotel_budget_per_night or 0.0
+        # 尝试从酒店地点取价
+        h = _get_place(it, "hotel") or {}
+        if h.get("price"):
+            hotel_price = _safe_float(h.get("price"))
+        hotel_cost = hotel_price * nights
+        hotel_nights = nights
 
     # ── 门票费用 ──────────────────────────────────────────────────
     ticket_cost = 0.0
@@ -117,6 +132,7 @@ def calculate_budget(
     meal_cost = meal_total
 
     # ── 交通费用 ──────────────────────────────────────────────────
+    # 优先用路线数据，否则按每天 ¥20/人 估算
     transport_cost = 0.0
     for day_data in it.get("days", []):
         for item in day_data.get("items", []):
@@ -127,9 +143,9 @@ def calculate_budget(
                 rate = TRANSPORT_COST_PER_KM.get(mode, 0.0)
                 transport_cost += distance_km * rate * people
 
-    # 若无路线数据，按步行 0 元默认
-    if transport_cost == 0.0:
-        transport_cost = 0.0  # 默认步行不计费
+    # 若无路线数据，按每日 ¥20/人 公共交通估算
+    if transport_cost == 0.0 and days > 0:
+        transport_cost = 20.0 * people * days
 
     # ── 汇总 ──────────────────────────────────────────────────────
     total = hotel_cost + ticket_cost + meal_cost + transport_cost
@@ -142,6 +158,7 @@ def calculate_budget(
         transport_cost=round(transport_cost, 2),
         other_cost=0.0,
         total_cost=round(total, 2),
+        hotel_nights=hotel_nights,
         total_budget=round(total_budget, 2),
         remaining_budget=round(remaining, 2),
         over_budget=remaining < 0 and total_budget > 0,

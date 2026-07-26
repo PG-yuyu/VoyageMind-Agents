@@ -20,7 +20,7 @@ try:
 except ModuleNotFoundError:
     pass
 
-app = FastAPI(title="天津自由行智能规划系统 - 成员一 API", version="0.2.0")
+app = FastAPI(title="行知旅策 - 天津自由行智能规划系统", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,

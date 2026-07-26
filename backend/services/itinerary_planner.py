@@ -83,6 +83,8 @@ def generate_itinerary(
     hotel_place_id = (hotel or {}).get("place_id", "")
     itinerary_days: list[ItineraryDay] = []
     total_cost = 0.0
+    lunch_used: set[str] = set()   # 午餐已用餐厅（跨天）
+    dinner_used: set[str] = set()  # 晚餐已用餐厅（跨天）
 
     for day_idx in range(days_count):
         day_num = day_idx + 1
@@ -98,6 +100,8 @@ def generate_itinerary(
             daily_start=daily_start,
             daily_end=daily_end,
             people=people,
+            lunch_used=lunch_used,
+            dinner_used=dinner_used,
         )
 
         daily_cost = sum(
@@ -148,8 +152,12 @@ def _build_day_timeline(
     daily_start: str,
     daily_end: str,
     people: int,
+    lunch_used: set[str] | None = None,
+    dinner_used: set[str] | None = None,
 ) -> tuple[list[ItineraryItem], float, int]:
     """为一天构建详细的行程时间轴。
+
+    改进版：合理分配上下午景点、支持晚餐、餐厅轮换、弹性休息时间。
 
     Returns:
         (items, daily_cost, walking_distance_m)
@@ -169,16 +177,27 @@ def _build_day_timeline(
     ))
     item_idx += 1
 
-    # ── 分配上午 / 下午景点 ──────────────────────────────────────────
-    mid = max(1, len(attractions) // 2) if len(attractions) > 1 else len(attractions)
-    morning_attrs = attractions[:mid]
-    afternoon_attrs = attractions[mid:]
+    # ── 分配上午 / 下午 / 晚间景点 ──────────────────────────────────
+    n = len(attractions)
+    if n <= 2:
+        morning_attrs = attractions[:1]
+        afternoon_attrs = attractions[1:2]
+        evening_attrs = attractions[2:]
+    elif n <= 4:
+        morning_attrs = attractions[:2]
+        afternoon_attrs = attractions[2:]
+        evening_attrs = []
+    else:
+        morning_attrs = attractions[:2]
+        afternoon_attrs = attractions[2:4]
+        evening_attrs = attractions[4:]
 
     walking_total = 0
+    _lunch_used = lunch_used or set()
+    _dinner_used = dinner_used or set()
 
     # ── 上午景点 ────────────────────────────────────────────────────
     for attr in morning_attrs:
-        # 路线耗时（此时仅有估算值，后续 attach_routes 补充真实数据）
         route_dur = attr.get("_estimated_route_duration_minutes", 15)
         walking_total += attr.get("_estimated_route_distance_m", 500) or 0
         arrival = _add_minutes(current_time, route_dur)
@@ -198,7 +217,11 @@ def _build_day_timeline(
         current_time = _add_minutes(end_time, BUFFER_MINUTES)
 
     # ── 午餐 ────────────────────────────────────────────────────────
-    lunch = _pick_restaurant(restaurants, "lunch", current_time, current_place_id)
+    lunch = _pick_restaurant(restaurants, "lunch", current_time, current_place_id, _lunch_used)
+    if lunch:
+        _lunch_used.add(lunch.get("place_id", ""))
+        if lunch_used is not None:
+            lunch_used.add(lunch.get("place_id", ""))
     lunch_time = _clamp_time(current_time, LUNCH_EARLIEST, LUNCH_LATEST)
     lunch_end = _add_minutes(lunch_time, DEFAULT_MEAL_DURATION)
     lunch_cost = (lunch.get("price", 0) or 0) * people if lunch else 0
@@ -234,12 +257,96 @@ def _build_day_timeline(
         item_idx += 1
         current_time = _add_minutes(end_time, BUFFER_MINUTES)
 
+    # ── 如果没有下午景点，或下午行程结束太早，补自由探索时间 ──────
+    dinner_earliest_min = _parse_minutes(DINNER_EARLIEST)
+    current_min = _parse_minutes(current_time)
+    if current_min < _parse_minutes("15:00"):
+        # 补自由探索到至少 15:00
+        rest_end = "15:00"
+        items.append(_make_item(
+            day_num=day_num, idx=item_idx, item_type=ItemType.REST,
+            place_id=None, start=current_time, end=rest_end,
+            duration=_parse_minutes(rest_end) - current_min,
+            cost_per_person=0, total=0, people=people,
+            note="自由探索 / 休息",
+        ))
+        item_idx += 1
+        current_time = rest_end
+    elif current_min < dinner_earliest_min - 60:
+        # 有下午行程但离晚餐还有 1 小时以上，补短暂休息
+        gap_end = _add_minutes(current_time, 60)
+        items.append(_make_item(
+            day_num=day_num, idx=item_idx, item_type=ItemType.REST,
+            place_id=None, start=current_time, end=gap_end,
+            duration=60, cost_per_person=0, total=0, people=people,
+            note="休息 / 周边漫步",
+        ))
+        item_idx += 1
+        current_time = gap_end
+
+    # ── 晚餐：下午有景点 / 时间到傍晚 / 已填充休息到下午且当天允许晚结束 ──
+    should_add_dinner = (
+        bool(afternoon_attrs) or
+        current_time >= "16:30" or
+        (current_time >= "15:00" and _parse_minutes(daily_end) >= _parse_minutes("18:00"))
+    )
+    if should_add_dinner:
+        # 晚餐排除当天午餐 + 之前晚餐用过的
+        dinner_exclude = set(_dinner_used)
+        if lunch:
+            dinner_exclude.add(lunch.get("place_id", ""))
+        dinner = _pick_restaurant(
+            restaurants, "dinner", current_time, current_place_id, dinner_exclude
+        )
+        if dinner:
+            _dinner_used.add(dinner.get("place_id", ""))
+            if dinner_used is not None:
+                dinner_used.add(dinner.get("place_id", ""))
+        dinner_time = _clamp_time(current_time, DINNER_EARLIEST, DINNER_LATEST)
+        dinner_end = _add_minutes(dinner_time, DEFAULT_MEAL_DURATION)
+        dinner_cost = (dinner.get("price", 0) or 0) * people if dinner else 0
+
+        items.append(_make_item(
+            day_num=day_num, idx=item_idx, item_type=ItemType.DINNER,
+            place_id=dinner.get("place_id", "") if dinner else "",
+            start=dinner_time, end=dinner_end,
+            duration=DEFAULT_MEAL_DURATION,
+            cost_per_person=dinner.get("price", 0) if dinner else 0,
+            total=dinner_cost, people=people,
+            note=dinner.get("name", "") if dinner else "晚餐（未指定餐厅）",
+        ))
+        item_idx += 1
+        current_time = dinner_end
+
+    # ── 晚间景点（如有） ────────────────────────────────────────────
+    for attr in evening_attrs:
+        route_dur = attr.get("_estimated_route_duration_minutes", 15)
+        walking_total += attr.get("_estimated_route_distance_m", 500) or 0
+        arrival = _add_minutes(current_time, route_dur)
+        dur = attr.get("duration_minutes") or DEFAULT_ATTRACTION_DURATION
+        end_time = _add_minutes(arrival, dur)
+
+        price = attr.get("price", 0) or 0
+        total = price * people
+
+        items.append(_make_item(
+            day_num=day_num, idx=item_idx, item_type=ItemType.ATTRACTION,
+            place_id=attr.get("place_id", ""), start=arrival, end=end_time,
+            duration=dur, cost_per_person=price, total=total, people=people,
+            note=attr.get("recommendation_reason", ""),
+        ))
+        item_idx += 1
+        current_time = _add_minutes(end_time, BUFFER_MINUTES)
+
+    # ── 如果结束时间太早，补休息缓冲 ───────────────────────────────
+    if _parse_minutes(current_time) < _parse_minutes("17:00") and not evening_attrs:
+        current_time = "17:00"
+
     # ── 返回酒店 ────────────────────────────────────────────────────
-    return_time = min(current_time, daily_end) if current_time <= daily_end else current_time
     items.append(_make_item(
         day_num=day_num, idx=item_idx, item_type=ItemType.RETURN,
-        place_id=hotel_place_id, start=return_time,
-        end=_add_minutes(return_time, 15),
+        place_id=hotel_place_id, start=current_time,
+        end=_add_minutes(current_time, 15),
         duration=15, cost_per_person=0, people=people, locked=True,
         note="返回酒店",
     ))
@@ -305,16 +412,38 @@ def _pick_restaurant(
     meal_type: str,
     current_time: str,
     near_place_id: str | None,
+    used_ids: set[str] | None = None,
 ) -> dict | None:
-    """从餐厅列表中选一个适合当前时段和位置的。"""
+    """从餐厅列表中选一个：优先没用过的，都用过则按最少使用次数轮换。"""
+    used = used_ids or set()
     candidates = [r for r in restaurants if r.get("meal_type") == meal_type or True]
     if not candidates:
         return restaurants[0] if restaurants else None
-    # 优先选靠近当前地点的
+
+    # 1. 优先选完全没用过的
+    fresh = [r for r in candidates if r.get("place_id", "") not in used]
+    if fresh:
+        # 在 fresh 中优先选靠近当前地点的
+        for r in fresh:
+            if r.get("near_place_id") == near_place_id:
+                return r
+        return fresh[0]
+
+    # 2. 都用过了，选与上一顿不同类型的（午餐→晚餐交替）
+    #    通过 meal_type 区分：如果当前是午餐，优先选上一顿用作晚餐的
     for r in candidates:
         if r.get("near_place_id") == near_place_id:
             return r
     return candidates[0]
+
+
+def _parse_minutes(t: str) -> int:
+    """时间字符串 → 分钟数。"""
+    try:
+        h, m = map(int, t.split(":"))
+        return h * 60 + m
+    except (ValueError, AttributeError):
+        return 0
 
 
 # ====================================================================

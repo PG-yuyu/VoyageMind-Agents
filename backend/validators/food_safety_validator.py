@@ -40,7 +40,9 @@ def validate_food_safety(
             if itype not in (ItemType.LUNCH.value, ItemType.DINNER.value):
                 continue
             place = item.get("_place") or {}
-            categories = place.get("categories", [])
+            categories = place.get("categories")
+            if not categories or not isinstance(categories, list):
+                continue  # 无分类数据，跳过
             name = place.get("name", "")
             for av in avoidances:
                 for cat in categories:

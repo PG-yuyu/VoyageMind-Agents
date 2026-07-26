@@ -323,7 +323,12 @@ class EvaluationAgent:
 
         directives_data = data.get("replan_directives", [])
         directives = []
+        if not isinstance(directives_data, list):
+            logger.warning("replan_directives 不是列表，跳过: %s", type(directives_data))
+            return directives
         for d in directives_data:
+            if not isinstance(d, dict):
+                continue
             try:
                 directives.append(ReplanDirective(**d))
             except Exception as exc:
@@ -340,11 +345,21 @@ class EvaluationAgent:
         """解析 LLM 返回的 JSON，处理 markdown 代码块包裹。"""
         text = raw.strip()
         if text.startswith("```"):
-            first_nl = text.index("\n")
-            start = first_nl + 1
-            end = text.rfind("```")
-            if end > start:
-                text = text[start:end].strip()
+            # 处理代码块：支持多行和单行两种格式
+            if "\n" in text:
+                first_nl = text.index("\n")
+                start = first_nl + 1
+                end = text.rfind("```")
+                if end > start:
+                    text = text[start:end].strip()
+                else:
+                    text = text[first_nl + 1:].strip()
             else:
-                text = text[first_nl + 1:].strip()
+                # 单行格式: ```json{...}```
+                text = text[3:].strip()  # 去掉开头的 ```
+                if text.endswith("```"):
+                    text = text[:-3].strip()
+                # 去掉可能的语言标识（如 ```json）
+                if text.startswith("json"):
+                    text = text[4:].strip()
         return json.loads(text)

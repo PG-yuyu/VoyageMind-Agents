@@ -140,3 +140,35 @@ export interface TripDiff {
   changes: TripChange[]
   unchanged_item_ids: string[]
 }
+
+// ── 评价系统统一输出模型 ─────────────────────────
+
+/** 重规划指导指令 */
+export interface ReplanDirective {
+  target_day: number
+  target_item_ids: string[]
+  action: 'replace' | 'remove' | 'reschedule' | 'add_buffer' | 'reduce_intensity' | 'change_mode' | 'adjust_time' | 'split_day' | 'merge_day'
+  reason: string
+  suggestion: string
+  priority: number  // 1=高(阻断) 2=中(建议) 3=低(可忽略)
+}
+
+/** 综合评价结果 —— EvaluationAgent 统一输出 */
+export interface OverallEvaluationResult {
+  passed: boolean
+  soft_preference_passed: boolean
+  overall_score: number  // 0.0 ~ 1.0
+  hard_issues: ValidationIssue[]
+  soft_issues: SoftPreferenceIssue[]
+  metrics: {
+    budget_match_rate: number
+    interest_coverage_rate: number
+    must_visit_coverage_rate: number
+    time_valid: boolean
+    walking_limit_valid: boolean
+  }
+  time_reasonableness_score: number
+  replan_directives: ReplanDirective[]
+  hard_evaluation_raw?: Record<string, unknown> | null
+  soft_evaluation_raw?: Record<string, unknown> | null
+}

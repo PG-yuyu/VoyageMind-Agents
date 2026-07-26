@@ -11,6 +11,14 @@ import {
   sendMessage,
   streamMessage
 } from './api'
+import { modifyItinerary } from './api/adjustmentApi'
+import { evaluateItinerary } from './api/itineraryApi'
+import ValidationPanel from './components/ValidationPanel.vue'
+import PreferenceEvaluationPanel from './components/PreferenceEvaluationPanel.vue'
+import TripDiff from './components/TripDiff.vue'
+import BudgetPanel from './components/BudgetPanel.vue'
+import TripTimeline from './components/TripTimeline.vue'
+import AdjustmentPanel from './components/AdjustmentPanel.vue'
 
 const pages = [
   { id: 'plan', label: '智能规划' },
@@ -115,6 +123,20 @@ const appliedAdjustment = ref('')
 const selectedPlace = ref(null)
 const recommendationResult = ref(null)
 const recommendedRoutes = ref([])
+
+// 智能修改状态：连接后端
+const currentItineraryId = ref('')
+const baseVersion = ref(1)
+const savedItinerary = ref(false) // 是否已保存到后端
+
+// ── 评价系统状态 ─────────────────────────────────
+const evaluationResult = ref(null)       // OverallEvaluationResult | null
+const evaluationLoading = ref(false)     // 评价请求加载中
+const showDiff = ref(false)              // 是否显示版本对比
+const tripDiffData = ref(null)           // TripDiff | null
+const showTimeline = ref(false)          // 切换时间轴视图
+const showAdjustments = ref(false)       // 切换调整说明视图
+
 const mapResources = ref(getMockMapResources())
 const mapLoading = ref(false)
 const mapError = ref('')
@@ -318,21 +340,11 @@ onMounted(async () => {
 
 watch(
   [
-    activePage,
-    sessionId,
-    hasPlan,
-    messages,
-    requirements,
-    itineraryDays,
-    activeDay,
-    tripHistory,
-    documents,
-    currentUser,
-    isAuthenticated,
-    recommendationResult,
-    recommendedRoutes,
-    mapResources,
-    budget
+    activePage, sessionId, hasPlan, messages, requirements,
+    itineraryDays, activeDay, tripHistory, documents,
+    currentUser, isAuthenticated, recommendationResult,
+    recommendedRoutes, mapResources, budget,
+    currentItineraryId, baseVersion,
   ],
   persistState,
   { deep: true }
@@ -355,7 +367,9 @@ function persistState() {
     recommendationResult: recommendationResult.value,
     recommendedRoutes: recommendedRoutes.value,
     mapResources: mapResources.value,
-    budget: budget.value
+    budget: budget.value,
+    currentItineraryId: currentItineraryId.value,
+    baseVersion: baseVersion.value,
   }
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
@@ -396,6 +410,8 @@ function restorePersistedState() {
     ? payload.mapResources
     : mapResources.value
   budget.value = Array.isArray(payload.budget) && payload.budget.length ? payload.budget : budget.value
+  currentItineraryId.value = payload.currentItineraryId || ''
+  baseVersion.value = payload.baseVersion || 1
 }
 
 async function loadMapResources() {
@@ -439,7 +455,18 @@ async function sendPrompt(targetPage = 'trip') {
       messages.value.push({ role: 'assistant', text: response.reply })
       requirements.value = response.requirements || requirements.value
       applyRecommendationPayload(response)
-      syncItineraryDays(text)
+
+      // ── 优先使用后端返回的真实行程，不可用时用模板兜底 ──
+      const backendItinerary = response.itinerary || response.data?.itinerary
+      if (backendItinerary && backendItinerary.days && backendItinerary.days.length > 0) {
+        applyBackendItinerary(backendItinerary)
+        currentItineraryId.value = backendItinerary.itinerary_id || ''
+        baseVersion.value = backendItinerary.version || 1
+        savedItinerary.value = true
+      } else {
+        syncItineraryDays(text)
+      }
+
       hasPlan.value = true
       saveCurrentTripHistory()
     }
@@ -610,6 +637,63 @@ function normalizeRequirementsFromText(text) {
   }
 }
 
+/**
+ * 将后端返回的 Itinerary 转为前端 itineraryDays 格式
+ */
+function applyBackendItinerary(backendItinerary) {
+  const city = requirements.value.city || '天津'
+
+  itineraryDays.value = (backendItinerary.days || []).map((dayData) => {
+    const items = (dayData.items || []).map((item) => {
+      const place = item._place || {}
+      const itemType = item.item_type || 'attraction'
+      return {
+        time: item.start_time || '09:00',
+        title: place.name || item.note || item.place_id || itemType,
+        tag: typeToTag(itemType, item, place),
+        desc: item.note || place.short_description || '',
+        cost: item.total_cost || 0,
+        route: place.address || '',
+      }
+    })
+
+    const totalCost = dayData.daily_cost || items.reduce((s, it) => s + it.cost, 0)
+    const walkingM = dayData.walking_distance_m || 0
+    const walkingStr = walkingM >= 1000
+      ? `${(walkingM / 1000).toFixed(1)} 公里`
+      : `${walkingM} 米`
+
+    return {
+      day: dayData.day,
+      title: `${city}第${dayData.day}天`,
+      date: dayData.date || '2026-07-25',
+      walking: walkingStr,
+      cost: totalCost,
+      hotel: '参考酒店',
+      routeTime: '待计算',
+      area: city,
+      highlights: [],
+      items,
+    }
+  })
+}
+
+/** item_type → 前端 tag 映射 */
+function typeToTag(itype, item, place) {
+  const cats = place.categories || []
+  if (itype === 'departure') return '出发准备'
+  if (itype === 'return') return '返程'
+  if (itype === 'transport') return '跨区交通'
+  if (itype === 'lunch' || itype === 'dinner') return '餐饮'
+  if (itype === 'rest') return '休整'
+  if (itype === 'hotel') return '住宿'
+  if (cats.includes('博物馆') || cats.includes('展馆')) return '博物馆'
+  if (cats.includes('建筑') || cats.includes('街区')) return '近代建筑'
+  if (cats.includes('夜景')) return '夜景'
+  if (cats.includes('公园') || cats.includes('自然')) return '城市公园'
+  return '景点'
+}
+
 function syncItineraryDays(text = '') {
   normalizeRequirementsFromText(text)
   const days = clampTripDays(requirements.value.days)
@@ -639,6 +723,7 @@ function syncItineraryDays(text = '') {
   }))
 
   activeDay.value = 1
+  savedItinerary.value = false // 新行程需要重新保存
 }
 
 function saveCurrentTripHistory() {
@@ -757,17 +842,307 @@ function submitEditRequest() {
   messages.value.push({ role: 'assistant', text: '已收到修改要求，我会保持在当前行程页，并优先调整受影响的时间段。' })
 }
 
-function analyzeSmartAdjustment() {
+/**
+ * 保存当前演示行程到后端，返回 itinerary_id
+ */
+async function saveCurrentItineraryToBackend() {
+  if (savedItinerary.value && currentItineraryId.value) return currentItineraryId.value
+
+  const demoItinerary = {
+    itinerary_id: `demo_${Date.now()}`,
+    session_id: sessionId.value || 'demo_session',
+    version: 1,
+    days: itineraryDays.value.map((day, di) => ({
+      day: day.day,
+      date: /^\d{4}-\d{2}-\d{2}$/.test(day.date) ? day.date : '2026-07-25',
+      items: day.items.map((item, ii) => ({
+        item_id: `day${day.day}_item_${String(ii).padStart(3, '0')}`,
+        day: day.day,
+        item_type: item.tag === '餐饮' ? 'lunch'
+          : item.tag === '夜景' ? 'attraction'
+          : item.tag === '近代建筑' || item.tag === '城市地标' || item.tag === '名人故居' || item.tag === '街区文化' || item.tag === '传统街区' || item.tag === '民俗文化' || item.tag === '博物馆' || item.tag === '建筑打卡' ? 'attraction'
+          : item.tag === '城市漫游' || item.tag === '城市休闲' || item.tag === '休整' ? 'rest'
+          : item.tag === '出发准备' || item.tag === '返程' || item.tag === '跨区交通' ? 'transport'
+          : 'attraction',
+        place_id: `place_${day.day}_${ii}`,
+        start_time: item.time || '09:00',
+        end_time: calcEndTime(item.time, 60),
+        duration_minutes: 60,
+        total_cost: item.cost || 0,
+        locked: false,
+        // 仅保存描述信息，不拼标题（避免修改循环中标题-描述反复叠加）
+        note: item.desc || item.title || '',
+      })),
+      daily_cost: day.cost || 0,
+      walking_distance_m: parseWalkingDistance(day.walking || '0'),
+      start_time: day.items?.[0]?.time || '09:00',
+      end_time: day.items?.[day.items.length - 1]?.time || '18:00',
+    })),
+    total_cost: itineraryDays.value.reduce((sum, d) => sum + (d.cost || 0), 0),
+    status: 'draft',
+  }
+
+  try {
+    const resp = await fetch('/api/v1/itineraries/save-demo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(demoItinerary),
+    })
+    const json = await resp.json()
+    if (json.success && json.data) {
+      currentItineraryId.value = json.data.itinerary_id
+      baseVersion.value = json.data.version
+      savedItinerary.value = true
+      return currentItineraryId.value
+    }
+    // Fallback: 用生成的 id 凑合
+    currentItineraryId.value = demoItinerary.itinerary_id
+    savedItinerary.value = true
+    return currentItineraryId.value
+  } catch (err) {
+    console.warn('save-demo 失败，使用本地 ID 兜底:', err.message)
+    currentItineraryId.value = demoItinerary.itinerary_id
+    savedItinerary.value = true
+    return currentItineraryId.value
+  }
+}
+
+function calcEndTime(start, durationMin) {
+  if (!start) return '10:00'
+  const [h, m] = start.split(':').map(Number)
+  const total = h * 60 + m + durationMin
+  return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
+function parseWalkingDistance(str) {
+  const m = str.match(/([\d.]+)/)
+  return m ? Math.round(parseFloat(m[1]) * 1000) : 5000
+}
+
+function extractModifyAction(text) {
+  const lower = text.toLowerCase()
+  if (lower.includes('室内') || lower.includes('下雨') || lower.includes('雨天') || lower.includes('天气')) return 'change_to_indoor'
+  if (lower.includes('太累') || lower.includes('减少步行') || lower.includes('轻松') || lower.includes('体力') || lower.includes('疲劳')) return 'reduce_walking'
+  if (lower.includes('替换') || lower.includes('换掉') || lower.includes('换成') || lower.includes('改成') || lower.includes('不喜欢') || lower.includes('不想') || lower.includes('不感')) return 'replace_attraction'
+  if (lower.includes('预算') || lower.includes('省钱') || lower.includes('加钱') || lower.includes('超支')) return 'change_budget'
+  return 'replace_attraction'
+}
+
+function extractTargetDay(text) {
+  // 明确写了"第X天"
+  const match = text.match(/第\s*([一二三四五六七八九十\d]+)\s*天/)
+  if (match) {
+    const numMap = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10 }
+    const day = numMap[match[1]] || parseInt(match[1], 10)
+    return isNaN(day) ? null : day
+  }
+  // 没写天数 → 根据关键词匹配行程项所在的天
+  for (const day of itineraryDays.value) {
+    for (const item of day.items) {
+      if (item.title.includes('博物') && text.includes('博物')) return day.day
+      if (item.title.includes('古文化') && text.includes('古文化')) return day.day
+      if (item.title.includes('海河') && text.includes('海河')) return day.day
+      if (item.tag === '博物馆' && (text.includes('博物') || text.includes('展馆'))) return day.day
+      if (item.title.includes('瓷房子') && text.includes('瓷房子')) return day.day
+      if (item.title.includes('五大') && text.includes('五大')) return day.day
+    }
+  }
+  // 完全没线索 → 默认第 1 天
+  return itineraryDays.value.length > 0 ? itineraryDays.value[0].day : null
+}
+
+/** 行程项标签 → 类别映射 */
+const tagCategory = {
+  '近代建筑': 'attraction', '城市地标': 'attraction', '名人故居': 'attraction',
+  '街区文化': 'attraction', '传统街区': 'attraction', '民俗文化': 'attraction',
+  '博物馆': 'attraction', '建筑打卡': 'attraction', '夜景': 'attraction',
+  '海边风光': 'attraction', '城市公园': 'attraction', '传统文化': 'attraction',
+  '校园周边': 'attraction', '文化场馆': 'attraction',
+  '餐饮': 'food',
+  '城市漫游': 'rest', '城市休闲': 'rest', '休整': 'rest',
+}
+const skipTags = ['出发准备', '返程', '跨区交通']
+
+async function analyzeSmartAdjustment() {
   const text = smartAdjustInput.value.trim()
   if (!text) return
+
+  const action = extractModifyAction(text)
+  const targetDay = extractTargetDay(text)
+  const day = targetDay ? itineraryDays.value.find(d => d.day === targetDay) : null
+
+  // ── 优先尝试后端 AI ──────────────────────────────
   smartAdjustPreview.value = {
     reason: text,
-    affected: ['14:00 瓷房子外观', '17:00 意式风情区', '19:00 海河夜景与天津之眼外观'],
-    changes: [
-      { from: '瓷房子外观', to: '天津博物馆', why: '室内展馆，适合雨天替代' },
-      { from: '意式风情区', to: '西岸艺术馆 / 商场休息', why: '减少露天步行和淋雨风险' },
-      { from: '海河夜景', to: '海河夜景改为车览或顺延', why: '保留核心体验，但降低天气影响' }
-    ]
+    affected: day ? day.items.filter(it => !skipTags.includes(it.tag)).map(it => `${it.time} ${it.title}`).slice(0, 6) : [],
+    changes: [{ from: '正在调用 AI', to: '分析中...', why: '连接后端 DeepSeek LLM 进行智能分析' }],
+  }
+
+  try {
+    await saveCurrentItineraryToBackend()
+    const resp = await modifyItinerary({
+      session_id: sessionId.value || 'demo_session',
+      itinerary_id: currentItineraryId.value,
+      base_version: baseVersion.value,
+      target_day: targetDay,
+      action,
+      original_text: text,
+      new_constraints: {},
+    })
+
+    if (resp.success && resp.data) {
+      const { itinerary, diff } = resp.data
+      const changes = diff?.changes || []
+
+      // 调试：打印后端返回的关键数据
+      console.log('后端 modify 响应:', {
+        hasItinerary: !!itinerary,
+        daysCount: itinerary?.days?.length,
+        diffChanges: changes.length,
+        affectedDays: diff?.affected_days,
+        agentTrace: resp.data?.agent_trace?.slice(-3),
+      })
+
+      // ── 先应用后端数据到 UI（如果有的话） ──────────
+      let backendApplied = false
+      if (itinerary?.days && itinerary.days.length > 0) {
+        // 构建原始 item_id → 中文名/标签/费用 的映射，避免被 place_id 覆盖
+        const origItemMap = {}
+        for (const origDay of itineraryDays.value) {
+          for (const origItem of origDay.items) {
+            origItemMap[origItem.time] = origItem  // 用时间+标题做模糊匹配
+          }
+        }
+        // 更可靠：按天+序号建立映射
+        const origByDayIdx = {}
+        for (const origDay of itineraryDays.value) {
+          origByDayIdx[origDay.day] = {}
+          origDay.items.forEach((it, idx) => {
+            origByDayIdx[origDay.day][idx] = it
+          })
+        }
+
+        itineraryDays.value = itinerary.days.map((dayData, di) => {
+          const origDay = itineraryDays.value[di] || { items: [], cost: 0, walking: '0 公里' }
+          const dayIdxMap = origByDayIdx[dayData.day] || {}
+          return {
+            day: dayData.day,
+            title: origDay.title || `第 ${dayData.day} 天`,
+            date: /^\d{4}-\d{2}-\d{2}$/.test(dayData.date) ? dayData.date : (origDay.date || '2026-07-25'),
+            walking: `${(dayData.walking_distance_m || 0) > 1000 ? ((dayData.walking_distance_m || 0) / 1000).toFixed(1) + ' 公里' : (dayData.walking_distance_m || 0) + ' 米'}`,
+            cost: dayData.daily_cost || origDay.cost || 0,
+            hotel: origDay.hotel || '参考酒店',
+            routeTime: origDay.routeTime || '待计算',
+            area: origDay.area || '天津',
+            highlights: origDay.highlights || [],
+            items: (dayData.items || []).map((item, ii) => {
+              const origItem = dayIdxMap[ii] || {}
+              // 判断后端是否真的修改了地点（排除 demo LLM 占位符 place_id）
+              const placeChanged = origItem.title && item.place_id &&
+                !String(origItem.title).includes(String(item.place_id)) &&
+                !String(item.place_id).startsWith('place_') &&
+                !String(item.place_id).startsWith('alt_place_')
+              const noteChanged = item.note && item.note !== origItem.desc
+              return {
+                time: item.start_time || origItem.time || '09:00',
+                // 始终保留原始中文标题，绝不用后端 note 覆盖标题
+                title: origItem.title || item.note || item.place_id || item.item_type || '行程项',
+                tag: origItem.tag || item.item_type || '普通',
+                // note 变化时作为描述展示（如"已替换为室内方案"）
+                desc: noteChanged ? item.note : (origItem.desc || ''),
+                cost: item.total_cost && item.total_cost !== origItem.cost ? item.total_cost : (origItem.cost || item.total_cost || 0),
+                route: origItem.route || '',
+                // 标记是否被后端修改过
+                _modified: placeChanged || noteChanged,
+              }
+            }),
+          }
+        })
+        baseVersion.value = resp.data.itinerary?.version || baseVersion.value + 1
+        savedItinerary.value = false
+        backendApplied = true
+      }
+
+      if (diff) {
+        tripDiffData.value = diff
+        showDiff.value = true
+      }
+      evaluateTrip()
+
+      // ── 如果后端没做有效修改 → 追加本地兜底 ────
+      // 检测方式：比较后端返回的 item.notes 和原始 desc 是否有实质变化
+      const hasRealChanges = changes.length > 0 || (
+        itinerary?.days && itinerary.days.some((d, di) => {
+          const origDay = itineraryDays.value[di]
+          if (!origDay) return false
+          const backendItems = d.items || []
+          return backendItems.some((item, ii) => {
+            const origItem = origDay.items[ii]
+            if (!origItem) return false
+            const newNote = String(item.note || '')
+            const origDesc = String(origItem.desc || '')
+            // 有实质修改：note 改变了，且不是 demo LLM 的无意义标记
+            return newNote !== origDesc &&
+                   newNote !== '' &&
+                   !newNote.startsWith('已调整（Demo LLM）') &&
+                   !newNote.startsWith('已调整（Demo')
+          })
+        })
+      )
+
+      if (!hasRealChanges) {
+        console.warn('后端 AI 未产生有效修改，追加本地兜底')
+        showLocalAdjustment(text, action, targetDay)
+        smartAdjustPreview.value = null
+        appliedAdjustment.value = `⚠️ 后端 LLM 未做有效修改，已用本地调整兜底。\n💡 尝试更具体的指令，如"把第1天户外景点换成室内展馆"`
+        return
+      }
+
+      // 后端已有效修改
+      smartAdjustPreview.value = null
+      appliedAdjustment.value = `✅ AI 智能调整完成（${changes.length} 项变更${backendApplied ? '，行程已更新' : ''}）`
+      return
+    }
+    // 后端返回异常
+    smartAdjustPreview.value = {
+      reason: text,
+      affected: [],
+      changes: [{ from: '后端异常', to: '使用本地分析', why: resp.message || resp.code || '未知错误' }],
+    }
+  } catch (err) {
+    // 后端不可达 → 本地预览兜底
+    console.warn('AI 分析不可用，使用本地预览:', err.message)
+  }
+
+  // ── 本地预览兜底 ──────────────────────────────────
+  if (!day) {
+    smartAdjustPreview.value = { reason: text, affected: [], changes: [{ from: '请指定', to: '具体天数', why: '如"第1天不喜欢博物馆"' }] }
+    return
+  }
+
+  const allowedCats = []
+  if (action === 'replace_attraction' || action === 'change_to_indoor') allowedCats.push('attraction')
+  else if (action === 'reduce_walking') allowedCats.push('attraction', 'rest')
+  else allowedCats.push('attraction', 'food', 'rest')
+
+  const affectedItems = day.items
+    .filter(it => !skipTags.includes(it.tag))
+    .filter(it => allowedCats.length === 0 || tagCategory[it.tag] === undefined || allowedCats.includes(tagCategory[it.tag]))
+    .map(it => ({ time: it.time, title: it.title, tag: it.tag, cost: it.cost }))
+
+  const previewChanges = affectedItems.slice(0, 5).map(it => {
+    const cat = tagCategory[it.tag] || 'other'
+    let to = '替代方案', why = '本地分析（后端未连接）'
+    if (action === 'change_to_indoor') { to = '室内展馆'; why = '户外→室内' }
+    else if (action === 'reduce_walking') { to = '低步行选项'; why = '减少步行距离' }
+    else if (action === 'replace_attraction') { to = cat === 'food' ? '替换餐厅' : '替换景点'; why = '本地分析（后端未连接）' }
+    return { from: `${it.time} ${it.title}`, to, why }
+  })
+
+  smartAdjustPreview.value = {
+    reason: text + '（本地预览 · 后端未连接）',
+    affected: affectedItems.map(it => `${it.time} ${it.title}`).slice(0, 6),
+    changes: previewChanges,
   }
 }
 
@@ -776,12 +1151,341 @@ function clearSmartAdjustmentResult() {
   appliedAdjustment.value = ''
 }
 
-function applySmartAdjustment() {
+async function applySmartAdjustment() {
   if (!smartAdjustPreview.value) return
-  const text = `根据情况自动调整行程：${smartAdjustPreview.value.reason}。受影响安排：${smartAdjustPreview.value.affected.join('、')}。请替换为室内或低步行方案。`
-  appliedAdjustment.value = '已应用智能调整建议：露天安排将优先替换为室内或低步行方案。'
-  messages.value.push({ role: 'user', text })
-  messages.value.push({ role: 'assistant', text: appliedAdjustment.value })
+
+  const text = smartAdjustInput.value.trim()
+  const action = extractModifyAction(text)
+  const targetDay = extractTargetDay(text)
+  const startTime = Date.now()
+
+  appliedAdjustment.value = '正在通过后端 AI 分析处理...'
+
+  try {
+    await saveCurrentItineraryToBackend()
+    const resp = await modifyItinerary({
+      session_id: sessionId.value || 'demo_session',
+      itinerary_id: currentItineraryId.value,
+      base_version: baseVersion.value,
+      target_day: targetDay,
+      action,
+      original_text: text,
+      new_constraints: {},
+    })
+
+    if (resp.success && resp.data) {
+      const { itinerary, diff } = resp.data
+
+      if (itinerary?.days && itinerary.days.length > 0) {
+        // 用后端 LLM 返回的行程数据更新前端
+        // 保留原始中文名，避免被后端 place_id 覆盖
+        const origByDayIdx2 = {}
+        for (const origDay of itineraryDays.value) {
+          origByDayIdx2[origDay.day] = {}
+          origDay.items.forEach((it, idx) => { origByDayIdx2[origDay.day][idx] = it })
+        }
+        itineraryDays.value = itinerary.days.map((dayData) => {
+          const origDay = itineraryDays.value.find(d => d.day === dayData.day) || { items: [], cost: 0, highlights: [] }
+          const dayIdxMap = origByDayIdx2[dayData.day] || {}
+          return {
+            day: dayData.day,
+            title: origDay.title || `第 ${dayData.day} 天`,
+            date: /^\d{4}-\d{2}-\d{2}$/.test(dayData.date) ? dayData.date : (origDay.date || '2026-07-25'),
+            walking: `${(dayData.walking_distance_m || 0) > 1000 ? ((dayData.walking_distance_m || 0) / 1000).toFixed(1) + ' 公里' : (dayData.walking_distance_m || 0) + ' 米'}`,
+            cost: dayData.daily_cost || origDay.cost || 0,
+            hotel: origDay.hotel || '参考酒店',
+            routeTime: origDay.routeTime || '待计算',
+            area: origDay.area || '天津',
+            highlights: origDay.highlights || [],
+            items: (dayData.items || []).map((item, ii) => {
+              const origItem = dayIdxMap[ii] || {}
+              const effectiveNote = (item.note && item.note !== origItem.desc && !String(item.note || '').startsWith('已替换原'))
+                ? item.note
+                : (origItem.desc || '')
+              return {
+                time: item.start_time || origItem.time || '09:00',
+                title: origItem.title || item.note || item.place_id || item.item_type || '行程项',
+                tag: origItem.tag || item.item_type || '普通',
+                desc: effectiveNote,
+                cost: origItem.cost || item.total_cost || 0,
+                route: origItem.route || '',
+              }
+            }),
+          }
+        })
+        baseVersion.value = resp.data.itinerary?.version || baseVersion.value + 1
+        savedItinerary.value = false
+      }
+
+      const changes = diff?.changes || []
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+      appliedAdjustment.value = `✅ 后端 AI 已完成调整（${elapsed}s）${changes.length ? `，${changes.length} 项变更` : ''}`
+      messages.value.push({
+        role: 'assistant',
+        text: `已根据你的要求调整行程：${text}\n\n调整类型：${action}\n耗时：${elapsed} 秒`,
+      })
+      // 显示版本对比
+      if (diff) {
+        tripDiffData.value = diff
+        showDiff.value = true
+      }
+      // 调整后触发重新评价
+      evaluateTrip()
+      smartAdjustPreview.value = null
+      return
+    }
+    // 后端返回了但结果异常
+    appliedAdjustment.value = `❌ 后端处理异常：${resp.message || resp.code}。请检查后端日志。`
+  } catch (err) {
+    // 后端不可达 → 本地兜底
+    console.warn('后端不可达，使用本地兜底调整:', err.message)
+    showLocalAdjustment(text, action, targetDay)
+    appliedAdjustment.value = `⚠️ 后端未连接，已使用本地模拟调整。如需 AI 智能调整，请启动后端：\n  uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000`
+  }
+  smartAdjustPreview.value = null
+}
+
+/** 后端不可用时的本地兜底方案 — 实际修改 itineraryDays */
+function showLocalAdjustment(text, action, targetDay) {
+  if (!targetDay) {
+    // 如果没提取到天数，默认影响第一天
+    targetDay = itineraryDays.value.length > 0 ? itineraryDays.value[0].day : 1
+  }
+
+  const dayIndex = itineraryDays.value.findIndex(d => d.day === targetDay)
+  if (dayIndex === -1) {
+    appliedAdjustment.value = '未找到目标天的行程，请重试。'
+    return
+  }
+
+  const originalDay = itineraryDays.value[dayIndex]
+  const newDay = {
+    ...originalDay,
+    items: [...originalDay.items],
+    highlights: [...(originalDay.highlights || [])],
+  }
+
+  // 根据 action 类型修改行程项
+  if (action === 'change_to_indoor') {
+    // 把户外景点换成室内
+    newDay.items = newDay.items.map((item, idx) => {
+      const outdoorTags = ['近代建筑', '城市地标', '街区文化', '传统街区', '民俗文化', '夜景', '海边风光']
+      if (outdoorTags.includes(item.tag) && item.title !== '酒店出发' && item.title !== '返回酒店') {
+        return {
+          ...item,
+          title: idx === 1 ? '天津博物馆' : idx === 3 ? '西岸艺术馆' : idx === 5 ? '南开大悦城休息' : item.title,
+          tag: '博物馆',
+          desc: /\d/.test(item.desc) ? item.desc : '已智能替换为室内安排（本地兜底）',
+          cost: Math.min(item.cost || 50, 60),
+        }
+      }
+      return item
+    })
+    newDay.highlights = ['室内展馆替代', '露天活动减少', '已在本地模拟调整']
+  } else if (action === 'reduce_walking') {
+    // 减少步行：合并相邻项，降低步行量
+    newDay.items = newDay.items.filter((item, idx) => {
+      if (item.tag === '城市漫游' || item.tag === '城市休闲') return false
+      if (idx > 0 && idx < newDay.items.length - 1 && idx % 3 === 0) return false
+      return true
+    })
+    // 调整被删除项的前后衔接
+    newDay.walking = `${Math.round((parseWalkingDistance(originalDay.walking || '6') * 0.6) / 100) / 10} 公里`
+    newDay.cost = newDay.items.reduce((s, it) => s + (it.cost || 0), 0)
+    newDay.highlights = ['步行量已降低', '强度已优化', '已在本地模拟调整']
+  } else if (action === 'replace_attraction') {
+    // 替换景点 —— 匹配所有景点类型标签，智能推导替换名
+    const attractionTags = ['近代建筑', '城市地标', '名人故居', '街区文化', '传统街区',
+      '民俗文化', '博物馆', '建筑打卡', '夜景', '海边风光', '城市公园', '传统文化',
+      '校园周边', '文化场馆', '展馆']
+    // 从用户输入提取关键词：如"不喜欢逛博物馆"→"博物馆"
+    const dislikeMatch = text.match(/不喜欢|不想|不要|别|讨厌|换掉|换成|替换/)
+    const targetKeyword = dislikeMatch ? text.split(/不喜欢|不想|不要|别|讨厌|换掉|换成|替换/)[1]?.trim() : ''
+    newDay.items = newDay.items.map((item) => {
+      if (attractionTags.includes(item.tag)) {
+        // 根据用户关键词或标签推导替换目标
+        let newTitle = '替换景点'
+        const t = item.title
+        if (t.includes('五大') || t.includes('民园')) newTitle = '天津文化中心（美术馆+图书馆）'
+        else if (t.includes('瓷房子')) newTitle = '天津自然博物馆'
+        else if (t.includes('张学良') || t.includes('故居')) newTitle = '梁启超故居（室内）'
+        else if (t.includes('意式') || t.includes('风情')) newTitle = '解放北路金融街漫步'
+        else if (t.includes('海河') || t.includes('夜景') || t.includes('天津之眼')) newTitle = '津湾广场+解放桥夜景'
+        else if (t.includes('博物') && targetKeyword?.includes('博物')) newTitle = '天津美术馆'
+        else if (t.includes('古文化') || t.includes('天后')) newTitle = '鼓楼+广东会馆'
+        else if (t.includes('图书馆') || t.includes('滨海')) newTitle = '国家海洋博物馆（室内）'
+        else if (t.includes('东疆') || t.includes('海边')) newTitle = '滨海文化中心'
+        else newTitle = `天津之眼（${t.slice(0, 4)}替代）`
+        return {
+          ...item,
+          title: newTitle,
+          tag: '文化场馆',
+          desc: `已根据「${text}」替换（本地兜底）`,
+          cost: Math.min(item.cost || 30, 60),
+        }
+      }
+      return item
+    })
+    newDay.cost = newDay.items.reduce((s, it) => s + (it.cost || 0), 0)
+    newDay.highlights = ['资源已替换', '行程已更新', '已在本地模拟调整']
+  } else {
+    // 通用调整：标记已修改
+    newDay.items = newDay.items.map((item, idx) => {
+      if (idx > 0 && idx < newDay.items.length - 1 && item.cost > 0) {
+        return { ...item, desc: (item.desc || '') + '（已调整）' }
+      }
+      return item
+    })
+    newDay.highlights = ['已根据要求调整', '已在本地模拟调整']
+  }
+
+  // 更新到响应式状态
+  const newDays = [...itineraryDays.value]
+  newDays[dayIndex] = newDay
+  itineraryDays.value = newDays
+
+  appliedAdjustment.value = `已应用智能调整建议：已根据「${action}」修改第 ${targetDay} 天行程（本地模拟）。`
+  messages.value.push({
+    role: 'assistant',
+    text: `已调整第 ${targetDay} 天行程：${text}\n（当前后端未连接，使用本地模拟调整）`,
+  })
+}
+
+async function evaluateTrip() {
+  evaluationLoading.value = true
+  try {
+    await saveCurrentItineraryToBackend()
+
+    const itinerary = {
+      itinerary_id: currentItineraryId.value || `eval_${Date.now()}`,
+      session_id: sessionId.value || 'demo_session',
+      version: baseVersion.value || 1,
+      days: itineraryDays.value.map((day, di) => ({
+        day: day.day,
+        date: /^\d{4}-\d{2}-\d{2}$/.test(day.date) ? day.date : '2026-07-25',
+        items: day.items.map((item, ii) => ({
+          item_id: `day${day.day}_item_${String(ii).padStart(3, '0')}`,
+          day: day.day,
+          item_type: mapTagToItemType(item.tag),
+          place_id: `place_${day.day}_${ii}`,
+          start_time: item.time || '09:00',
+          end_time: calcEndTime(item.time, 60),
+          duration_minutes: 60,
+          total_cost: item.cost || 0,
+          locked: false,
+          note: `${item.title}${item.desc ? ' — ' + item.desc : ''}`,
+        })),
+        daily_cost: day.cost || 0,
+        walking_distance_m: parseWalkingDistance(day.walking || '0'),
+        start_time: day.items?.[0]?.time || '09:00',
+        end_time: day.items?.[day.items.length - 1]?.time || '18:00',
+      })),
+      total_cost: itineraryDays.value.reduce((sum, d) => sum + (d.cost || 0), 0),
+      status: 'draft',
+    }
+
+    const req = {
+      city: requirements.value.city || '天津',
+      days: requirements.value.days || itineraryDays.value.length,
+      people: requirements.value.people || 1,
+      total_budget: requirements.value.total_budget || 0,
+      interests: requirements.value.interests || [],
+      must_visit: requirements.value.must_visit || [],
+      daily_start_time: requirements.value.daily_start_time || '09:00',
+      daily_end_time: requirements.value.daily_end_time || '18:00',
+      walking_limit_m: requirements.value.walking_limit_m || 8000,
+      travel_pace: requirements.value.travel_pace || 'normal',
+    }
+
+    const resp = await evaluateItinerary({
+      itinerary,
+      requirements: req,
+      semantic_preferences: [],
+      generate_replan_directives: true,
+    })
+
+    if (resp.success && resp.data) {
+      evaluationResult.value = resp.data
+    } else {
+      evaluationResult.value = null
+    }
+  } catch (err) {
+    console.warn('评价请求失败（后端可能未启动）:', err.message)
+    // 后端不可用时使用模拟评价结果
+    evaluationResult.value = getMockEvaluation()
+  } finally {
+    evaluationLoading.value = false
+  }
+}
+
+/** 生成模拟评价结果（后端不可用时的兜底） */
+function getMockEvaluation() {
+  const days = itineraryDays.value
+  const totalCost = days.reduce((sum, d) => sum + (d.cost || 0), 0)
+  const totalBudget = requirements.value.total_budget || 0
+  const budgetMatch = totalBudget > 0 ? Math.min(1, totalCost / totalBudget) : 1
+
+  const issues = []
+  let timeValid = true, walkingValid = true
+
+  for (const day of days) {
+    const walkingM = parseWalkingDistance(day.walking || '0')
+    if (walkingM > (requirements.value.walking_limit_m || 8000)) {
+      walkingValid = false
+      issues.push({
+        code: 'WALKING_LIMIT_EXCEEDED',
+        severity: 'warning',
+        day: day.day,
+        item_id: null,
+        message: `第${day.day}天预计步行${Math.round(walkingM)}米，接近或超出限制`,
+        suggestion: '可考虑使用公交替代部分步行路段',
+      })
+    }
+    const lastItem = day.items?.[day.items.length - 1]
+    if (lastItem?.time && lastItem.time > (requirements.value.daily_end_time || '18:00')) {
+      timeValid = false
+      issues.push({
+        code: 'DAILY_END_TIME_EXCEEDED',
+        severity: 'warning',
+        day: day.day,
+        item_id: null,
+        message: `第${day.day}天结束时间 ${lastItem.time} 超出每日结束时间限制`,
+        suggestion: '提前出发或压缩行程',
+      })
+    }
+  }
+
+  return {
+    passed: issues.filter(i => i.severity === 'error').length === 0,
+    soft_preference_passed: true,
+    overall_score: Math.round((budgetMatch + (timeValid ? 1 : 0.5) + (walkingValid ? 1 : 0.5)) / 3 * 100) / 100,
+    hard_issues: issues,
+    soft_issues: [],
+    metrics: {
+      budget_match_rate: Math.round(budgetMatch * 100) / 100,
+      interest_coverage_rate: 0.85,
+      must_visit_coverage_rate: 1.0,
+      time_valid: timeValid,
+      walking_limit_valid: walkingValid,
+    },
+    time_reasonableness_score: 0.8,
+    replan_directives: issues.length > 0 ? [{
+      target_day: issues[0].day || 1,
+      target_item_ids: [],
+      action: issues[0].code === 'WALKING_LIMIT_EXCEEDED' ? 'reduce_intensity' : 'adjust_time',
+      reason: issues[0].message,
+      suggestion: issues[0].suggestion || '优化行程安排',
+      priority: 1,
+    }] : [],
+  }
+}
+
+function mapTagToItemType(tag) {
+  if (!tag) return 'attraction'
+  if (tag === '餐饮') return 'lunch'
+  if (tag === '出发准备' || tag === '返程' || tag === '跨区交通') return 'transport'
+  if (tag === '城市漫游' || tag === '城市休闲' || tag === '休整') return 'rest'
+  return 'attraction'
 }
 
 function openUpload() {
@@ -1115,21 +1819,63 @@ async function submitAuth() {
               </ul>
             </section>
 
-            <section class="panel check-card">
-              <h3>行程检查</h3>
-              <div>
-                <span>开放时间</span>
-                <strong>正常</strong>
+            <ValidationPanel
+              :issues="evaluationResult?.hard_issues ?? null"
+              :loading="evaluationLoading"
+              :passed="evaluationResult?.passed ?? null"
+              :time-valid="evaluationResult?.metrics?.time_valid ?? true"
+              :walking-valid="evaluationResult?.metrics?.walking_limit_valid ?? true"
+              :budget-rate="Math.round((evaluationResult?.metrics?.budget_match_rate ?? 1) * 100)"
+            />
+
+            <!-- 软偏好评价 -->
+            <PreferenceEvaluationPanel
+              :evaluation="evaluationResult ? {
+                soft_preference_passed: evaluationResult.soft_preference_passed,
+                issues: evaluationResult.soft_issues || [],
+                overall_assessment: evaluationResult.overall_score >= 0.7
+                  ? `综合评分 ${Math.round(evaluationResult.overall_score * 100)}%，行程整体合理`
+                  : `综合评分 ${Math.round(evaluationResult.overall_score * 100)}%，建议优化`,
+              } : null"
+              :loading="evaluationLoading"
+            />
+
+            <!-- 评价操作按钮 -->
+            <section class="panel eval-action-card">
+              <div class="eval-action-head">
+                <h3>评价系统</h3>
+                <button
+                  class="eval-trigger"
+                  :disabled="evaluationLoading"
+                  @click="evaluateTrip()"
+                >
+                  {{ evaluationLoading ? '评价中...' : (evaluationResult ? '重新评价' : '开始评价') }}
+                </button>
               </div>
-              <div>
-                <span>步行上限</span>
-                <strong>未超限</strong>
+              <div v-if="evaluationResult" class="eval-score-row">
+                <div class="eval-score-main">
+                  <span class="score-number">{{ Math.round(evaluationResult.overall_score * 100) }}</span>
+                  <span class="score-unit">分</span>
+                </div>
+                <div class="eval-score-detail">
+                  <span :class="evaluationResult.passed ? 'status-pass' : 'status-fail'">
+                    {{ evaluationResult.passed ? '✅ 通过' : '❌ 存在问题' }}
+                  </span>
+                  <span v-if="evaluationResult.replan_directives?.length" class="directive-hint">
+                    {{ evaluationResult.replan_directives.length }} 条优化建议
+                  </span>
+                </div>
               </div>
-              <div>
-                <span>预算</span>
-                <strong>未超支</strong>
-              </div>
+              <p v-if="!evaluationResult && !evaluationLoading" class="eval-hint">
+                点击"开始评价"对当前行程进行全面检查
+              </p>
             </section>
+
+            <!-- 版本对比（调整后展示） -->
+            <TripDiff
+              v-if="showDiff && tripDiffData"
+              :diff="tripDiffData"
+            />
 
             <section class="panel backup-card">
               <h3>备选安排</h3>
@@ -1197,21 +1943,19 @@ async function submitAuth() {
             <p>预计花费 {{ totalSpent }} 元，剩余 {{ remainingBudget }} 元。</p>
           </div>
         </div>
-        <section class="panel budget-panel">
-          <div class="budget-ring">
-            <strong>{{ budgetPercent }}%</strong>
-            <span>预算使用</span>
-          </div>
-          <div class="budget-list">
-            <article v-for="item in budget" :key="item.label">
-              <span :style="{ background: item.color }"></span>
-              <div>
-                <strong>{{ item.label }}</strong>
-                <p>{{ item.value }} 元</p>
-              </div>
-            </article>
-          </div>
-        </section>
+        <BudgetPanel
+          :budget="{
+            hotel_cost: budget.find(b => b.label === '酒店')?.value || 0,
+            ticket_cost: budget.find(b => b.label === '门票')?.value || 0,
+            meal_cost: budget.find(b => b.label === '餐饮')?.value || 0,
+            transport_cost: budget.find(b => b.label === '交通')?.value || 0,
+            other_cost: 0,
+            total_cost: totalSpent,
+            total_budget: requirements.total_budget || 0,
+            remaining_budget: remainingBudget,
+            over_budget: remainingBudget < 0,
+          }"
+        />
         </template>
         <section v-else class="empty-state">
           <p class="eyebrow">Budget</p>

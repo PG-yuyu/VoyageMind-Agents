@@ -47,3 +47,5 @@ LangChain_RAG/Neo4j-*-Created-*.txt
 .idea/
 .DS_Store
 Thumbs.db
+
+docs/

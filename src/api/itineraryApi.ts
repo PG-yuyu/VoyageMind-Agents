@@ -62,3 +62,20 @@ export async function validateItinerary(data: {
   })
   return resp.json()
 }
+
+/** 统一评价（硬约束 + 软偏好 + 综合评分 + 重规划指令） */
+export async function evaluateItinerary(data: {
+  itinerary: Record<string, unknown>
+  requirements: Record<string, unknown>
+  places?: Record<string, unknown>[]
+  routes?: Record<string, unknown>[]
+  semantic_preferences?: Record<string, unknown>[]
+  generate_replan_directives?: boolean
+}): Promise<ApiResponse> {
+  const resp = await fetch(`${BASE}/evaluate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  return resp.json()
+}

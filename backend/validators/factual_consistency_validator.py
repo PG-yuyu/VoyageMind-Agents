@@ -100,8 +100,10 @@ def validate_coordinate(itinerary: dict) -> list[ValidationIssue]:
         day_num = day_data.get("day", 1)
         for item in day_data.get("items", []):
             place = item.get("_place") or {}
-            lon = place.get("longitude")
-            lat = place.get("latitude")
+            # 兼容两种格式：嵌套 coordinate 对象 和 扁平 lon/lat 字段
+            coord = place.get("coordinate") or {}
+            lon = coord.get("longitude") if isinstance(coord, dict) else place.get("longitude")
+            lat = coord.get("latitude") if isinstance(coord, dict) else place.get("latitude")
             if lon is None or lat is None:
                 continue  # 无坐标信息的跳过（如出发项）
             if not (-180 <= lon <= 180) or not (-90 <= lat <= 90):

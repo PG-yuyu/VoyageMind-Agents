@@ -24,9 +24,12 @@ def validate_walking(
     Returns:
         list[ValidationIssue]: 超限问题列表；上限=0 时使用默认值 999_999
     """
-    limit = requirements.get("walking_limit_m") or 999_999
+    limit = requirements.get("walking_limit_m")
+    # None 表示用户未设定；0 表示明确要求零步行
+    if limit is None:
+        return []
     if limit >= 999_999:
-        return []  # 用户未设定步行上限，跳过
+        return []  # 预设哨兵值，视为不限制
 
     issues: list[ValidationIssue] = []
     for day_data in itinerary.get("days", []):

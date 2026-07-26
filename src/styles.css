@@ -1351,6 +1351,89 @@ textarea {
   font-weight: 900;
 }
 
+/* ── 评价系统操作卡片 ─────────────────────────── */
+.eval-action-card {
+  display: grid;
+  gap: 10px;
+}
+
+.eval-action-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.eval-action-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.eval-trigger {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #5b6cff, #14b8a6);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.eval-trigger:hover { opacity: 0.9; }
+.eval-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.eval-score-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: #f7faff;
+  border-radius: 12px;
+}
+
+.eval-score-main {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.score-number {
+  font-size: 32px;
+  font-weight: 800;
+  color: #5b6cff;
+  line-height: 1;
+}
+
+.score-unit {
+  font-size: 14px;
+  color: #8a9bb5;
+  font-weight: 600;
+}
+
+.eval-score-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.status-pass { color: #0f8f7e; font-weight: 600; }
+.status-fail { color: #e05555; font-weight: 600; }
+
+.directive-hint {
+  font-size: 12px;
+  color: #f59e0b;
+}
+
+.eval-hint {
+  font-size: 13px;
+  color: #8a9bb5;
+  text-align: center;
+  padding: 8px;
+}
+
 .backup-card,
 .travel-note-card {
   display: grid;

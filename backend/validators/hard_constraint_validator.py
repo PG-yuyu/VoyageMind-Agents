@@ -176,13 +176,24 @@ def _d(obj) -> dict:
 
 
 def _enrich_items(itinerary: dict) -> None:
-    """为每个 item 注入 _place 引用（来自行程中其他 item 的 place 信息）。
+    """为每个 item 注入 _place 引用。
 
-    注意：此处从行程中 __place 的原始信息注入，用于校验。
-    实际项目中更完整的方式是传入 places 列表建立 place_map。
+    注意：此函数为空壳。实际的 _place 注入由 enrich_items_with_places()
+    完成（需要外部传入 places 列表）。调用方必须在 validate_hard_constraints()
+    之前调用 enrich_items_with_places()，否则所有依赖 _place 的校验器将静默跳过。
     """
-    # 若无全局 place_map，从 items 自身已有的 place 属性收集
-    pass  # 校验器单独处理无 _place 的情况
+    import logging
+    has_place = False
+    for day_data in itinerary.get("days", []):
+        for item in day_data.get("items", []):
+            if item.get("_place"):
+                has_place = True
+                break
+    if not has_place:
+        logging.getLogger(__name__).warning(
+            "行程 items 缺少 _place 引用。请在校验前调用 enrich_items_with_places()。"
+            "当前所有依赖 _place 的校验器（开放时间、饮食安全等）将静默跳过。"
+        )
 
 
 def enrich_items_with_places(

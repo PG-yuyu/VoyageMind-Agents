@@ -14,16 +14,19 @@ from fastapi import APIRouter
 
 from backend.schemas import ApiResponse
 from backend.schemas.modification import ModificationRequest
-from backend.agents.adjustment_agent import AdjustmentAgent, _dummy_llm
+from backend.agents.adjustment_agent import AdjustmentAgent
 
 router = APIRouter(prefix="/api/v1/itineraries", tags=["adjustment"])
 
 
 @router.post("/modify")
 async def api_modify(request: ModificationRequest) -> ApiResponse:
-    """用户主动修改行程。"""
+    """用户主动修改行程。
+
+    Agent 会自动解析 LLM（优先 DeepSeekLLM，Mock 兜底）。
+    """
     try:
-        agent = AdjustmentAgent(llm_callable=_dummy_llm)
+        agent = AdjustmentAgent()
         result = agent.modify(request=request)
         return ApiResponse(success=True, data=result)
     except Exception as exc:
@@ -54,7 +57,7 @@ async def api_local_replan(
             target_item_id=target_item_id,
             new_constraints=constraints or {},
         )
-        agent = AdjustmentAgent(llm_callable=_dummy_llm)
+        agent = AdjustmentAgent()
         result = agent.modify(request=request)
         return ApiResponse(success=True, data=result)
     except Exception as exc:

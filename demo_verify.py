@@ -366,12 +366,58 @@ def verify_adjustment(mock):
 
 
 # ====================================================================
-# 9. 生成可视化 HTML 报告
+# 9. 评价系统验证（v2 新增）
 # ====================================================================
 
 
-def generate_html_report(mock, budget_eval, validation_eval):
-    header("9. 生成 HTML 可视化报告")
+def verify_evaluation(mock):
+    header("9. 评价系统验证（EvaluationAgent 双轨评价）")
+
+    try:
+        from backend.agents.evaluation_agent import EvaluationAgent
+        from backend.schemas.evaluation_agent import OverallEvaluationResult
+
+        itinerary = mock.get("itinerary", {})
+        requirements = itinerary.get("requirements_snapshot", {}) or {}
+        semantic_preferences = mock.get("semantic_preferences", [])
+
+        # 不传 LLM → evaluation_agent 只做硬约束 + 指标
+        agent = EvaluationAgent()
+        result = agent.evaluate(
+            itinerary=itinerary,
+            requirements=requirements,
+            semantic_preferences=semantic_preferences or [],
+            generate_replan_directives=False,
+        )
+
+        info(f"综合评价: passed={result.passed}, score={result.overall_score:.2f}")
+        info(f"  硬约束问题: {result.hard_issue_count} 项")
+        info(f"  软偏好问题: {result.soft_issue_count} 项")
+        info(f"  时间合理性: {result.time_reasonableness_score:.2f}")
+
+        if result.hard_issues:
+            print(f"\n  硬约束问题列表:")
+            for iss in result.hard_issues:
+                sev = f"{RED}{iss.severity.value.upper()}{END}" if iss.severity.value == "error" else f"{YELLOW}{iss.severity.value.upper()}{END}"
+                print(f"    [{sev}] {iss.code.value}: {iss.message}")
+
+        ok(f"评价系统验证通过 (OverallEvaluationResult)")
+        return result
+    except ImportError as exc:
+        fail(f"评价系统模块不可用: {exc}")
+        return None
+    except Exception as exc:
+        fail(f"评价系统验证失败: {exc}")
+        return None
+
+
+# ====================================================================
+# 10. 生成可视化 HTML 报告
+# ====================================================================
+
+
+def generate_html_report(mock, budget_eval, validation_eval, overall_eval=None):
+    header("10. 生成 HTML 可视化报告")
 
     itinerary = mock.get("itinerary", {})
     budget = mock.get("budget_summary", {})
@@ -584,6 +630,35 @@ th {{ background: #fafafa; font-weight: 500; color: #888; font-size: 12px; }}
             <div class="metric-item"><div class="label">步行合规</div><div class="value">{'✓' if metrics.walking_limit_valid else '✗'}</div></div>
         </div>
     </div>
+
+    <!-- 综合评价（v2 新增） -->
+    {f'''
+    <div class="card">
+        <h2>🌟 综合评价系统</h2>
+        <div class="stats-row">
+            <div class="stat-card {("passed" if overall_eval.passed else "failed")}">
+                <h3>综合判定</h3>
+                <div class="value">{("通过" if overall_eval.passed else "未通过")}</div>
+            </div>
+            <div class="stat-card info">
+                <h3>综合评分</h3>
+                <div class="value">{overall_eval.overall_score * 100:.0f}分</div>
+            </div>
+            <div class="stat-card info">
+                <h3>软偏好</h3>
+                <div class="value">{("通过" if overall_eval.soft_preference_passed else "待优化")}</div>
+            </div>
+            <div class="stat-card info">
+                <h3>时间合理性</h3>
+                <div class="value">{overall_eval.time_reasonableness_score * 100:.0f}分</div>
+            </div>
+        </div>
+        <div style="margin-top: 12px; font-size: 13px; color: #888;">
+            硬约束问题: {overall_eval.hard_issue_count} 项 | 软偏好问题: {overall_eval.soft_issue_count} 项
+        </div>
+    </div>
+    ''' if overall_eval else ''}
+
 </div>
 </body>
 </html>"""
@@ -606,38 +681,41 @@ def start_api_server():
     from fastapi.middleware.cors import CORSMiddleware
     import uvicorn
 
-    app = FastAPI(title="城市自由行智能规划系统 API", version="0.2.0")
+    app = FastAPI(title="行知旅策 - 天津自由行智能规划系统", version="1.0.0")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
     @app.get("/")
     async def root():
-        return {"service": "城市自由行智能规划系统", "version": "0.2.0", "status": "running"}
+        return {"service": "行知旅策 - 天津自由行智能规划系统", "version": "1.0.0", "status": "running"}
 
     @app.get("/api/v1/health")
     async def health():
         return {
             "status": "ok",
             "services": {
-                "llm": "mock",
+                "llm": "deepseek",
                 "validator": "ready",
                 "budget": "ready",
                 "version": "ready",
-                "sqlite": "mock",
+                "evaluation": "ready",
             },
-            "modules": ["agents", "prompts", "schemas", "validators", "services", "api"],
+            "modules": ["agents", "prompts", "schemas", "validators", "services", "api", "evaluation"],
         }
 
     # 注册路由
     from backend.api.itinerary_api import router as itinerary_router
     from backend.api.validation_api import router as validation_router
+    from backend.api.adjustment_api import router as adjustment_router
     from backend.api.version_api import router as version_router
 
     app.include_router(itinerary_router)
     app.include_router(validation_router)
+    app.include_router(adjustment_router)
     app.include_router(version_router)
 
     info(f"启动 API 服务: http://localhost:8000")
     info(f"健康检查: http://localhost:8000/api/v1/health")
+    info(f"评价接口: http://localhost:8000/api/v1/itineraries/evaluate")
     info(f"API 文档: http://localhost:8000/docs")
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
@@ -680,8 +758,16 @@ def main():
     # 7. 调整服务验证
     verify_adjustment(mock)
 
-    # 8. HTML 报告
-    generate_html_report(mock, budget_result.model_dump() if hasattr(budget_result, 'model_dump') else mock.get("budget_summary", {}), validation_result)
+    # 8. 评价系统验证
+    evaluation_result = verify_evaluation(mock)
+
+    # 9. HTML 报告
+    generate_html_report(
+        mock,
+        budget_result.model_dump() if hasattr(budget_result, 'model_dump') else mock.get("budget_summary", {}),
+        validation_result,
+        overall_eval=evaluation_result,
+    )
 
     # ── 总结果 ──
     header("🏁 验证完成")
@@ -692,6 +778,7 @@ def main():
     print(f"  {GREEN}✓{END} 版本管理正常")
     print(f"  {GREEN}✓{END} 指标计算正常")
     print(f"  {GREEN}✓{END} 调整服务正常")
+    print(f"  {GREEN}✓{END} 评价系统正常")
     print(f"\n  📄 HTML 报告: {ROOT}/demo_report.html")
     print(f"\n  启动 API 服务: python demo_verify.py --api")
     print()

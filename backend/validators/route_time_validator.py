@@ -25,12 +25,12 @@ def _parse_time(time_str: str | None) -> datetime | None:
         return None
 
 
-def _time_diff_minutes(earlier: str, later: str) -> int:
-    """计算 later - earlier 的分钟差。"""
+def _time_diff_minutes(earlier: str, later: str) -> int | None:
+    """计算 later - earlier 的分钟差；无法解析时返回 None。"""
     t1 = _parse_time(earlier)
     t2 = _parse_time(later)
     if t1 is None or t2 is None:
-        return 0
+        return None
     return int((t2 - t1).total_seconds() / 60)
 
 
@@ -80,12 +80,14 @@ def validate_route_time(itinerary: dict) -> list[ValidationIssue]:
             prev_end = items[i].get("end_time", "")
             next_start = items[i + 1].get("start_time", "")
             gap_min = _time_diff_minutes(prev_end, next_start)
+            if gap_min is None:
+                continue  # 时间数据缺失，跳过
 
             route = items[i + 1].get("_route") or items[i + 1].get("route_from_previous_id")
             if isinstance(route, str):
                 continue  # 仅有 ID 无详情，跳过
             route_duration = (route or {}).get("duration_minutes", 0)
-            if isinstance(route_duration, int) and route_duration > gap_min:
+            if isinstance(route_duration, (int, float)) and route_duration > gap_min:
                 issues.append(ValidationIssue(
                     code=ValidationCode.ROUTE_TIME_INSUFFICIENT,
                     severity=Severity.ERROR,
