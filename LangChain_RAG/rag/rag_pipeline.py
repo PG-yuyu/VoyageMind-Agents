@@ -176,6 +176,8 @@ class RAGPipeline:
 
         # Step 1: 保存用户消息
         self.session_store.add_message(request.session_id, "user", request.query)
+        sources: list[SourceReference] = []
+        cited_sources: list[SourceReference] = []
 
         # Step 2: 意图识别
         intent = self._detect_intent(request.query, trace_id)
@@ -212,6 +214,7 @@ class RAGPipeline:
             graph_nodes=retrieval_result.nodes,
             graph_edges=retrieval_result.edges,
             intent=intent,
+            # 生成阶段必须给模型全部候选来源，回答完成后再筛出实际引用来源。
             sources=sources,
             trace_id=trace_id,
         )
@@ -231,7 +234,7 @@ class RAGPipeline:
             intent=intent,
             original_query=request.query,
             rewritten_query=rewritten_query,
-            sources=sources,
+            sources=cited_sources,
             graph_nodes=retrieval_result.nodes,
             graph_edges=retrieval_result.edges,
             graph_paths=retrieval_result.paths,

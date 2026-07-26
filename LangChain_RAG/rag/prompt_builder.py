@@ -11,6 +11,16 @@ from contracts.models import (
     SourceReference,
 )
 
+def _format_page_info(filename: str, page_number: int | None) -> str:
+    """格式化页码信息。txt 和 docx 没有固定分页，不显示页码。"""
+    if page_number is None:
+        return ""
+    low_name = (filename or "").lower()
+    if low_name.endswith(".txt") or low_name.endswith(".docx"):
+        return ""
+    return f"（第{page_number}页）"
+
+
 # ══════════════════════════════════════════════════════════════
 # 实体与关系抽取
 # ══════════════════════════════════════════════════════════════
@@ -194,9 +204,9 @@ def build_answer_prompt(
         context_parts.append("## 参考文档内容：")
         context_parts.append("### 来源编号：")
         for source in sources:
-            page_info = f"第 {source.page_number} 页" if source.page_number else "未知页"
+            page_info = _format_page_info(source.filename, source.page_number)
             context_parts.append(
-                f"source:{source.citation_index} = {source.filename} ({page_info})\n{source.content}"
+                f"source:{source.citation_index} = {source.filename}{page_info}\n{source.content}"
             )
 
     # 文档块上下文
@@ -215,9 +225,9 @@ def build_answer_prompt(
 
         context_parts.append("\n### 检索到的相关片段：")
         for chunk in chunks:
-            page_info = f"第{chunk.page_number}页" if chunk.page_number else "未知页"
+            page_info = _format_page_info(chunk.filename, chunk.page_number)
             context_parts.append(
-                f"source:{source_indexes[chunk.document_id]} 文档：{chunk.filename} ({page_info})\n{chunk.content}"
+                f"source:{source_indexes[chunk.document_id]} 文档：{chunk.filename}{page_info}\n{chunk.content}"
             )
 
     # 知识图谱上下文

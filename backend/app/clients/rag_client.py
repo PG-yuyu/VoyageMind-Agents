@@ -101,11 +101,12 @@ class LangChainRagServiceAdapter:
 
         backend = self._get_backend_service()
         query_request_cls = self._get_query_request_cls()
+        selected_document_ids = self._resolve_place_document_ids(backend, place)
         request = query_request_cls(
             query=self._build_question(place, evidence_types),
             session_id=f"{self.session_prefix}-{place.place_id}",
             knowledge_base_id=self.knowledge_base_id,
-            selected_document_ids=[],
+            selected_document_ids=selected_document_ids,
             top_k=top_k,
             enable_query_rewrite=True,
             trace_id=f"{self.session_prefix}-{place.place_id}",
@@ -146,6 +147,39 @@ class LangChainRagServiceAdapter:
         if project_root_text not in sys.path:
             sys.path.insert(0, project_root_text)
 
+    def _resolve_place_document_ids(
+        self,
+        backend: RagBackendLike,
+        place: Place,
+    ) -> list[str]:
+        """优先把单地点查询限定到对应 RAG 文档，避免全库召回偏题。"""
+
+        list_documents = getattr(backend, "list_documents", None)
+        if not callable(list_documents):
+            return []
+
+        try:
+            documents = list_documents(self.knowledge_base_id)
+        except Exception:
+            return []
+
+        expected_filenames = self._candidate_document_filenames(place)
+        document_ids = [
+            str(getattr(document, "document_id", "")).strip()
+            for document in documents
+            if str(getattr(document, "filename", "")).strip() in expected_filenames
+        ]
+        return [document_id for document_id in document_ids if document_id]
+
+    @staticmethod
+    def _candidate_document_filenames(place: Place) -> set[str]:
+        """根据地点编号推断 RAG 文档文件名。"""
+
+        filenames = {f"{place.place_id}.md"}
+        if place.place_id.startswith("tj_"):
+            filenames.add(f"{place.place_id.removeprefix('tj_')}.md")
+        return filenames
+
     @staticmethod
     def _build_question(place: Place, evidence_types: list[str]) -> str:
         """构造面向 LangChain_RAG 的地点依据查询问题。"""
@@ -153,7 +187,8 @@ class LangChainRagServiceAdapter:
         evidence_text = "、".join(evidence_types)
         return (
             f"请基于知识库资料，检索并总结{place.city}{place.name}的{evidence_text}。"
-            "回答必须只依据知识库内容，并保留可追溯来源。"
+            "如果参考内容不是该地点，请不要当作依据。"
+            "回答必须只依据知识库内容，并在有依据的段落末尾保留 {{source:编号}} 来源标记。"
         )
 
     @staticmethod

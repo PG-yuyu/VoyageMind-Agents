@@ -153,7 +153,14 @@ class DocumentLoader:
     # ── DOCX ────────────────────────────────────────────────
 
     def _load_docx(self, file_path: str) -> DocumentLoadResult:
-        """使用 python-docx 读取 Word 文档。"""
+        """使用 python-docx 读取 Word 文档。
+
+        改进点（相比旧版）：
+        - 按文档 XML 顺序遍历，不遗漏表格内容
+        - 多策略标题检测：outline_level → 样式名(Heading/标题) → 字号+加粗启发式
+        - 提取页眉页脚文本
+        - 按标题将文档划分为伪页面，改善 chunk 结构感知
+        """
         try:
             from docx import Document  # type: ignore[import-untyped]
         except ImportError:
@@ -163,25 +170,263 @@ class DocumentLoader:
             )
 
         doc = Document(file_path)
-        paragraphs: list[str] = []
-        for para in doc.paragraphs:
-            text = para.text.strip()
-            if text:
-                # 检测标题样式，用 markdown 标记保留结构
-                if para.style and para.style.name and para.style.name.startswith("Heading"):
-                    level = para.style.name.split()[-1]
-                    try:
-                        level_num = int(level)
-                        text = "#" * min(level_num, 4) + " " + text
-                    except ValueError:
-                        text = "## " + text
-                paragraphs.append(text)
 
-        content = "\n\n".join(paragraphs)
+        # 1. 收集页眉页脚
+        header_footer_text = self._extract_docx_headers_footers(doc)
+
+        # 2. 按文档顺序遍历 body 子元素（段落 + 表格交替）
+        content_blocks: list[str] = []
+
+        if header_footer_text:
+            content_blocks.append(header_footer_text)
+
+        content_blocks.extend(self._iter_docx_body_elements(doc))
+
+        # 3. 按标题分节，生成伪页面
+        sections = self._split_docx_by_headings(content_blocks)
+        pages: list[PageInfo] = []
+        for i, section_text in enumerate(sections, start=1):
+            clean = section_text.strip()
+            if clean:
+                pages.append(PageInfo(page_number=i, text=clean))
+
+        content = "\n\n".join(s.strip() for s in sections if s.strip())
+
         return DocumentLoadResult(
             content=content,
-            pages=[PageInfo(page_number=1, text=content)],
+            pages=pages,
         )
+
+    # ── DOCX 辅助方法 ────────────────────────────────────────
+
+    @staticmethod
+    def _extract_docx_headers_footers(doc) -> str:
+        """提取所有节的页眉和页脚文本。"""
+        parts: list[str] = []
+        for i, section in enumerate(doc.sections):
+            # 第一个 section 总是提取；后续 section 只在未链接到前一节时提取
+            is_first = i == 0
+            # 页眉
+            if section.header:
+                if is_first or not section.header.is_linked_to_previous:
+                    for para in section.header.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            parts.append(text)
+            # 页脚
+            if section.footer:
+                if is_first or not section.footer.is_linked_to_previous:
+                    for para in section.footer.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            parts.append(text)
+
+        if parts:
+            return "[文档页眉/页脚]\n" + "\n".join(parts)
+        return ""
+
+    @staticmethod
+    def _iter_docx_body_elements(doc) -> list[str]:
+        """按文档 body XML 子元素顺序遍历，交替返回段落和表格文本。
+
+        关键：通过 doc.element.body 的 child 标签区分 <w:p>（段落）
+        和 <w:tbl>（表格），保证表格内容不丢失且位置正确。
+        """
+        blocks: list[str] = []
+
+        paragraphs = list(doc.paragraphs)
+        tables = list(doc.tables)
+
+        para_idx = 0
+        tbl_idx = 0
+
+        for child in doc.element.body:
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+
+            if tag == "p":
+                if para_idx < len(paragraphs):
+                    para = paragraphs[para_idx]
+                    para_idx += 1
+                    text = para.text.strip()
+                    if text:
+                        formatted = DocumentLoader._format_docx_paragraph(para, text)
+                        blocks.append(formatted)
+
+            elif tag == "tbl":
+                if tbl_idx < len(tables):
+                    table = tables[tbl_idx]
+                    tbl_idx += 1
+                    table_text = DocumentLoader._extract_docx_table(table)
+                    if table_text:
+                        blocks.append(table_text)
+
+        # 防御：如果 XML 遍历遗漏了某些段落（某些 docx 库版本可能不同），回退补充
+        while para_idx < len(paragraphs):
+            para = paragraphs[para_idx]
+            para_idx += 1
+            text = para.text.strip()
+            if text:
+                formatted = DocumentLoader._format_docx_paragraph(para, text)
+                blocks.append(formatted)
+
+        return blocks
+
+    @staticmethod
+    def _detect_heading_level(para) -> int | None:
+        """多策略检测段落标题级别。
+
+        策略优先级：
+        1. outline_level 属性（语言无关，最可靠）
+        2. 样式名匹配 "Heading N"（英文 Word）
+        3. 样式名匹配 "标题 N"（中文 Word）
+        4. 样式名包含 "heading"/"title" 关键词
+        5. 启发式：字号 >= 16pt 且加粗 → 视为一级标题
+
+        Returns:
+            标题级别 1-4，或 None（非标题）。
+        """
+        # 策略 1: outline_level
+        try:
+            pf = para.paragraph_format
+            if hasattr(pf, "outline_level") and pf.outline_level is not None:
+                level = pf.outline_level
+                if isinstance(level, int) and 0 <= level <= 8:
+                    # outline_level 0 = body text, 1 = Heading 1, ...
+                    if level >= 1:
+                        return min(level, 4)
+        except Exception:
+            pass
+
+        # 策略 2 & 3 & 4: 样式名
+        style_name = ""
+        if para.style and para.style.name:
+            style_name = para.style.name.strip()
+
+        if style_name:
+            # "Heading 1", "Heading 2", ...
+            if style_name.lower().startswith("heading"):
+                parts = style_name.split()
+                if len(parts) >= 2:
+                    try:
+                        return min(int(parts[-1]), 4)
+                    except ValueError:
+                        return 2
+                return 2
+
+            # "标题 1", "标题 2", ...
+            if "标题" in style_name:
+                parts = style_name.split()
+                if len(parts) >= 2:
+                    try:
+                        return min(int(parts[-1]), 4)
+                    except ValueError:
+                        return 2
+                return 2
+
+            # 其他常见标题样式关键词
+            style_lower = style_name.lower()
+            if any(kw in style_lower for kw in ("title", "head", "subtitle", "h1", "h2", "h3")):
+                if "sub" in style_lower:
+                    return 3
+                return 2
+
+        # 策略 5: 字号 + 加粗启发式
+        try:
+            font_size = None
+            is_bold = False
+            for run in para.runs:
+                if run.font.size is not None:
+                    font_size = run.font.size.pt  # type: ignore[attr-defined]
+                if run.bold:
+                    is_bold = True
+                    break
+
+            if font_size is not None and font_size >= 16 and is_bold:
+                return 1
+            if font_size is not None and font_size >= 14 and is_bold:
+                return 2
+        except Exception:
+            pass
+
+        return None
+
+    @staticmethod
+    def _format_docx_paragraph(para, text: str) -> str:
+        """格式化段落文本，为标题添加 markdown 标记。"""
+        level = DocumentLoader._detect_heading_level(para)
+        if level is not None:
+            prefix = "#" * min(level, 4)
+            return f"{prefix} {text}"
+        return text
+
+    @staticmethod
+    def _extract_docx_table(table) -> str:
+        """提取 Word 表格内容，格式化为可读文本。
+
+        将表格转为 markdown 风格的文本表示：
+        - 第一行视为表头
+        - 每行用 " | " 分隔单元格
+        """
+        rows = table.rows
+        if not rows:
+            return ""
+
+        lines: list[str] = []
+        lines.append("[表格]")
+
+        for row_idx, row in enumerate(rows):
+            cells = []
+            for cell in row.cells:
+                cell_text = cell.text.strip().replace("\n", " ")
+                cells.append(cell_text)
+
+            # 跳过完全为空的行
+            if not any(c for c in cells):
+                continue
+
+            line = " | ".join(cells)
+            lines.append(line)
+
+        if len(lines) <= 1:  # 只有 [表格] 标记，无有效行
+            return ""
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _split_docx_by_headings(blocks: list[str]) -> list[str]:
+        """按 markdown 标题标记将内容块分节，生成伪页面。
+
+        以 H1/H2（## 及以上）为界切分；如果文档无标题，按块数均分。
+        这样每个 section 作为一个 PageInfo，给 chunker 提供更好的结构边界。
+        """
+        if not blocks:
+            return [""]
+
+        sections: list[list[str]] = []
+        current: list[str] = []
+
+        for block in blocks:
+            is_major_heading = bool(
+                (block.startswith("# ") or block.startswith("## "))
+                and not block.startswith("### ")
+            )
+            if is_major_heading and current:
+                sections.append(current)
+                current = [block]
+            else:
+                current.append(block)
+
+        if current:
+            sections.append(current)
+
+        # 如果分节太少（没有标题），按块数均分，避免单节过大
+        if len(sections) <= 1 and len(blocks) > 10:
+            sections = []
+            section_size = max(5, len(blocks) // 3)
+            for i in range(0, len(blocks), section_size):
+                sections.append(blocks[i:i + section_size])
+
+        return ["\n\n".join(sec) for sec in sections]
 
     # ── TXT ─────────────────────────────────────────────────
 

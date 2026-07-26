@@ -31,6 +31,15 @@ def _getint(name: str, default: int) -> int:
     return int(value)
 
 
+def _resolve_project_path(path_text: str) -> str:
+    """将相对路径固定解析到 LangChain_RAG 项目目录，避免受启动目录影响。"""
+
+    path = Path(path_text)
+    if path.is_absolute():
+        return str(path)
+    return str(Path(__file__).resolve().parents[1] / path)
+
+
 @dataclass(slots=True)
 class GraphDBConfig:
     """Runtime settings for Neo4j, Chroma, and embeddings."""
@@ -60,7 +69,7 @@ class GraphDBConfig:
             neo4j_username=_getenv("NEO4J_USERNAME", "neo4j"),
             neo4j_password=_getenv("NEO4J_PASSWORD", "password"),
             neo4j_database=_getenv("NEO4J_DATABASE", "neo4j"),
-            chroma_persist_directory=persist_dir,
+            chroma_persist_directory=_resolve_project_path(persist_dir),
             chroma_parent_collection=_getenv(
                 "CHROMA_PARENT_COLLECTION",
                 "parent_documents",
