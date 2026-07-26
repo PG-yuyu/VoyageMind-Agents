@@ -837,6 +837,14 @@ textarea {
   width: min(100%, 1380px);
 }
 
+.page.map-page {
+  gap: 14px;
+}
+
+.page.map-page > .page-head {
+  padding-bottom: 0;
+}
+
 .page-head h1 {
   font-size: 30px;
   line-height: 1.2;
