@@ -442,7 +442,6 @@ async function startGuideVoiceInput() {
     }
     guideVoiceRecorder.onstop = () => {
       stream.getTracks().forEach((track) => track.stop())
-      stopGuideHiddenSpeechRecognition()
       const audioBlob = new Blob(guideVoiceChunks, { type: guideVoiceRecorder?.mimeType || 'audio/webm' })
       guideVoiceRecorder = null
       guideVoiceChunks = []
@@ -451,7 +450,6 @@ async function startGuideVoiceInput() {
       }
     }
 
-    startGuideHiddenSpeechRecognition()
     guideVoiceRecorder.start()
     guideVoiceRecording.value = true
   } catch (error) {
@@ -477,7 +475,7 @@ async function submitGuideVoiceBlob(audioBlob) {
       sessionId: props.sessionId || 'demo_session',
       scene: 'guide',
       audioBlob,
-      clientHint: guideVoiceHint.value
+      clientHint: ''
     })
     guideMessages.value.push({
       id: ++guideMessageId,
@@ -491,7 +489,7 @@ async function submitGuideVoiceBlob(audioBlob) {
       guideMessages.value.push({
         id: ++guideMessageId,
         role: 'assistant',
-        content: '\u8fd9\u6761\u8bed\u97f3\u6211\u6ca1\u6709\u542c\u6e05\uff0c\u8bf7\u518d\u5f55\u4e00\u6b21\uff0c\u6216\u8005\u76f4\u63a5\u6253\u5b57\u95ee\u6211\u3002'
+        content: data.asr_error ? `?????????????${data.asr_error}` : '\u8fd9\u6761\u8bed\u97f3\u6211\u6ca1\u6709\u542c\u6e05\uff0c\u8bf7\u518d\u5f55\u4e00\u6b21\uff0c\u6216\u8005\u76f4\u63a5\u6253\u5b57\u95ee\u6211\u3002'
       })
       guideLoading.value = false
       return
