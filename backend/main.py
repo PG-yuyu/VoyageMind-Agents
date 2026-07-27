@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.auth_api import router as auth_router
 from backend.api.chat_api import router as chat_router
+from backend.api.voice_api import router as voice_router
 from backend.app.api.map_resource_api import router as map_resource_router
 from backend.app.api.recommendation_api import router as recommendation_router
 from backend.app.api.routes_api import router as route_router
@@ -32,6 +33,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(chat_router)
+app.include_router(voice_router)
 
 # 成员二地图资源接口依赖 FastAPI，可用时注册到主应用。
 if map_resource_router is not None:

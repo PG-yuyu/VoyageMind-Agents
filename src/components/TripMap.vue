@@ -133,8 +133,21 @@
               rows="3"
               placeholder="针对当前景点或路线提问，比如：这里适合拍照吗？附近有什么吃的？"
             ></textarea>
-            <button type="submit" :disabled="guideLoading">{{ guideLoading ? '回答中' : '提问' }}</button>
+            <div class="guide-panel__actions">
+              <button
+                type="button"
+                class="guide-voice-button"
+                :class="{ recording: guideVoiceRecording }"
+                :disabled="guideLoading && !guideVoiceRecording"
+                @click="toggleGuideVoiceInput"
+              >
+                {{ guideVoiceRecording ? '停止' : '语音' }}
+              </button>
+              <button type="submit" :disabled="guideLoading">{{ guideLoading ? '回答中' : '提问' }}</button>
+            </div>
           </form>
+          <p v-if="guideVoiceRecording" class="guide-voice-status">正在录音，说完后点“停止”。</p>
+          <p v-else-if="guideVoiceError" class="guide-voice-status error">{{ guideVoiceError }}</p>
         </section>
       </aside>
     </div>
@@ -147,7 +160,7 @@ import MapInfoWindow from './MapInfoWindow.vue'
 import MapMarker from './MapMarker.vue'
 import PlaceList from './PlaceList.vue'
 import RoutePolyline from './RoutePolyline.vue'
-import { streamGuideChat } from '../api'
+import { streamGuideChat, understandVoice } from '../api'
 import { createMapStore } from '../stores/mapStore'
 import { loadAmapJsApi } from '../utils/amapLoader'
 
@@ -188,7 +201,13 @@ const guideTargetKind = ref('place')
 const guideInput = ref('')
 const guideMessages = ref([])
 const guideLoading = ref(false)
+const guideVoiceRecording = ref(false)
+const guideVoiceHint = ref('')
+const guideVoiceError = ref('')
 let guideMessageId = 0
+let guideVoiceRecorder = null
+let guideVoiceChunks = []
+let guideVoiceRecognition = null
 let amapApi = null
 let amapMarkers = []
 let amapPolylines = []
@@ -298,6 +317,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopGuideVoiceInput()
   clearAmapPolylines()
   clearAmapMarkers()
   if (amapInstance.value) {
@@ -380,6 +400,122 @@ async function sendGuideQuestion() {
   })
   guideInput.value = ''
   await requestGuideAnswer(question)
+}
+
+async function toggleGuideVoiceInput() {
+  if (guideVoiceRecording.value) {
+    stopGuideVoiceInput()
+  } else {
+    await startGuideVoiceInput()
+  }
+}
+
+async function startGuideVoiceInput() {
+  if (guideLoading.value || guideVoiceRecording.value) return
+  if (!guideTarget.value) {
+    guideVoiceError.value = '请先选择一个地点或路线。'
+    return
+  }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    guideVoiceError.value = '当前浏览器不支持录音，请继续使用文字输入。'
+    return
+  }
+
+  try {
+    guideVoiceError.value = ''
+    guideVoiceHint.value = ''
+    guideVoiceChunks = []
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const mimeType = supportedGuideVoiceMimeType()
+    guideVoiceRecorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream)
+
+    guideVoiceRecorder.ondataavailable = (event) => {
+      if (event.data?.size) guideVoiceChunks.push(event.data)
+    }
+    guideVoiceRecorder.onstop = () => {
+      stream.getTracks().forEach((track) => track.stop())
+      const audioBlob = new Blob(guideVoiceChunks, { type: guideVoiceRecorder?.mimeType || 'audio/webm' })
+      guideVoiceRecorder = null
+      guideVoiceChunks = []
+      if (audioBlob.size) {
+        submitGuideVoiceBlob(audioBlob)
+      }
+    }
+
+    startGuideHiddenSpeechRecognition()
+    guideVoiceRecorder.start()
+    guideVoiceRecording.value = true
+  } catch (error) {
+    guideVoiceRecording.value = false
+    guideVoiceError.value = '无法启动麦克风，请检查浏览器权限。'
+  }
+}
+
+function stopGuideVoiceInput() {
+  stopGuideHiddenSpeechRecognition()
+  if (guideVoiceRecorder && guideVoiceRecorder.state !== 'inactive') {
+    guideVoiceRecorder.stop()
+  }
+  guideVoiceRecording.value = false
+}
+
+async function submitGuideVoiceBlob(audioBlob) {
+  if (!guideTarget.value) return
+  guideLoading.value = true
+  try {
+    const data = await understandVoice({
+      sessionId: props.sessionId || 'demo_session',
+      scene: 'guide',
+      audioBlob,
+      clientHint: guideVoiceHint.value
+    })
+    const question = data.understood_text || guideVoiceHint.value || '这里最值得看的地方是什么？'
+    guideMessages.value.push({
+      id: ++guideMessageId,
+      role: 'user',
+      content: data.display_text || '已发送一条语音导游问题'
+    })
+    guideLoading.value = false
+    await requestGuideAnswer(question)
+  } catch (error) {
+    guideVoiceError.value = '语音发送失败，请再试一次或改用文字输入。'
+    guideLoading.value = false
+  }
+}
+
+function startGuideHiddenSpeechRecognition() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!Recognition) return
+  guideVoiceRecognition = new Recognition()
+  guideVoiceRecognition.lang = 'zh-CN'
+  guideVoiceRecognition.continuous = true
+  guideVoiceRecognition.interimResults = true
+  guideVoiceRecognition.onresult = (event) => {
+    let text = ''
+    for (let index = 0; index < event.results.length; index += 1) {
+      text += event.results[index][0]?.transcript || ''
+    }
+    guideVoiceHint.value = text.trim()
+  }
+  guideVoiceRecognition.onerror = () => {}
+  guideVoiceRecognition.start()
+}
+
+function stopGuideHiddenSpeechRecognition() {
+  if (!guideVoiceRecognition) return
+  try {
+    guideVoiceRecognition.stop()
+  } catch (error) {
+    // The browser can already have stopped recognition.
+  }
+  guideVoiceRecognition = null
+}
+
+function supportedGuideVoiceMimeType() {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+  return candidates.find((type) => window.MediaRecorder?.isTypeSupported?.(type)) || ''
 }
 
 async function requestGuideAnswer(message, intro = false) {
@@ -1141,6 +1277,12 @@ function clamp(value, min, max) {
   border-color: #8ea0ff;
 }
 
+.guide-panel__actions {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 10px;
+}
+
 .guide-panel__input button {
   min-height: 42px;
   border: 0;
@@ -1153,6 +1295,30 @@ function clamp(value, min, max) {
 .guide-panel__input button:disabled {
   cursor: wait;
   opacity: 0.72;
+}
+
+.guide-panel__input .guide-voice-button {
+  border: 1px solid #d9e3ee;
+  background: #f8fbff;
+  color: #4f65ff;
+  box-shadow: none;
+}
+
+.guide-panel__input .guide-voice-button.recording {
+  border-color: #ff6b7a;
+  background: #fff1f3;
+  color: #d9364f;
+}
+
+.guide-voice-status {
+  margin: 8px 0 0;
+  color: #4f65ff;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.guide-voice-status.error {
+  color: #d9364f;
 }
 
 :deep(.amap-resource-marker) {
