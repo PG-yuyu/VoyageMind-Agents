@@ -134,6 +134,41 @@ const planningProgress = ref([
   { title: '安排每日路线', desc: '减少折返，插入午餐和晚餐时间', status: 'pending' },
   { title: '检查预算与强度', desc: '确认费用、步行距离和结束时间', status: 'pending' }
 ])
+let planningProgressTimer = null
+
+const progressStepTemplates = [
+  {
+    title: '理解你的需求',
+    pending: '等待识别目的地、天数、预算和兴趣偏好',
+    active: '正在拆解目的地、天数、预算和兴趣偏好',
+    done: '已识别目的地、天数、预算和兴趣偏好'
+  },
+  {
+    title: '筛选推荐地点',
+    pending: '等待匹配景点、餐厅和住宿区域',
+    active: '正在匹配景点、餐厅和住宿区域',
+    done: '已完成地点候选筛选'
+  },
+  {
+    title: '安排每日路线',
+    pending: '等待安排每日动线和时间段',
+    active: '正在减少折返，安排午餐和晚餐时间',
+    done: '已生成每日路线草案'
+  },
+  {
+    title: '检查预算与强度',
+    pending: '等待校验费用、步行距离和结束时间',
+    active: '正在校验预算、步行强度和开放时间',
+    done: '已完成预算与强度检查'
+  }
+]
+
+const planningProgressPercent = computed(() => {
+  const doneCount = planningProgress.value.filter((item) => item.status === 'done').length
+  const activeIndex = planningProgress.value.findIndex((item) => item.status === 'active')
+  const progressIndex = activeIndex >= 0 ? activeIndex + 0.45 : doneCount
+  return Math.min(100, Math.max(0, (progressIndex / Math.max(planningProgress.value.length - 1, 1)) * 100))
+})
 
 const itineraryDays = ref([
   {
@@ -416,6 +451,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopPlanningProgressFlow()
   voiceObjectUrls.forEach((url) => URL.revokeObjectURL(url))
 })
 
@@ -522,15 +558,56 @@ async function sendPrompt(targetPage = 'trip') {
   await submitPromptText(text, targetPage)
 }
 
+function setPlanningProgress(activeIndex) {
+  planningProgress.value = progressStepTemplates.map((item, index) => {
+    const status = index < activeIndex ? 'done' : index === activeIndex ? 'active' : 'pending'
+    return {
+      title: item.title,
+      desc: item[status],
+      status
+    }
+  })
+}
+
+function stopPlanningProgressFlow() {
+  if (planningProgressTimer) {
+    window.clearTimeout(planningProgressTimer)
+    planningProgressTimer = null
+  }
+}
+
+function startPlanningProgressFlow(targetPage) {
+  stopPlanningProgressFlow()
+  setPlanningProgress(0)
+  if (targetPage === 'qa') return
+
+  const delays = [650, 1200, 1500]
+  let nextIndex = 1
+  const advance = () => {
+    if (!planning.value || nextIndex >= progressStepTemplates.length) return
+    setPlanningProgress(nextIndex)
+    const delay = delays[nextIndex] || 1500
+    nextIndex += 1
+    planningProgressTimer = window.setTimeout(advance, delay)
+  }
+  planningProgressTimer = window.setTimeout(advance, delays[0])
+}
+
+function finishPlanningProgress() {
+  stopPlanningProgressFlow()
+  planningProgress.value = progressStepTemplates.map((item, index) => ({
+    title: item.title,
+    desc: index === 2 ? routeProgressText() : item.done,
+    status: 'done'
+  }))
+}
+
 async function submitPromptText(text, targetPage = 'trip', displayText = text, audioUrl = '', audioType = '') {
   if (!text || planning.value) return
 
   messages.value.push({ role: 'user', text: displayText, audioUrl, audioType })
   planning.value = true
-  planningProgress.value = planningProgress.value.map((item, index) => ({
-    ...item,
-    status: index === 0 ? 'active' : 'pending'
-  }))
+  startPlanningProgressFlow(targetPage)
 
   try {
     if (targetPage === 'qa') {
@@ -561,12 +638,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
       hasPlan.value = true
       saveCurrentTripHistory()
     }
-    planningProgress.value = [
-      { title: '理解你的需求', desc: '已识别目的地、天数、预算和兴趣偏好', status: 'done' },
-      { title: '筛选推荐地点', desc: recommendationResult.value ? '已调用旅游资源推荐模块并返回地点结果' : '已准备调用景点、餐厅和住宿推荐', status: 'done' },
-      { title: '安排每日路线', desc: routeProgressText(), status: 'active' },
-      { title: '检查预算与强度', desc: '预算、步行和开放时间会在生成后校验', status: 'pending' }
-    ]
+    finishPlanningProgress()
     activePage.value = targetPage
   } catch (error) {
     apiError.value = error.message
@@ -579,10 +651,11 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
       hasPlan.value = true
       saveCurrentTripHistory()
     }
-    planningProgress.value = planningProgress.value.map((item) => ({ ...item, status: 'done' }))
+    finishPlanningProgress()
     activePage.value = targetPage
   } finally {
     planning.value = false
+    stopPlanningProgressFlow()
   }
 }
 
@@ -2065,8 +2138,11 @@ async function submitAuth() {
             <p>系统会先理解需求，再安排地点、路线和预算。</p>
           </div>
           <div class="progress-steps">
-            <article v-for="item in planningProgress" :key="item.title" :class="['progress-step', item.status]">
-              <span></span>
+            <div class="progress-rail">
+              <i :style="{ width: `${planningProgressPercent}%` }"></i>
+            </div>
+            <article v-for="(item, index) in planningProgress" :key="item.title" :class="['progress-step', item.status]">
+              <span>{{ index + 1 }}</span>
               <div>
                 <strong>{{ item.title }}</strong>
                 <p>{{ item.desc }}</p>
