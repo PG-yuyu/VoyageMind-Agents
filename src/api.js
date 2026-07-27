@@ -47,6 +47,51 @@ export function sendMessage(sessionId, message) {
   })
 }
 
+export async function streamPlanMessage(sessionId, message, onEvent) {
+  const response = await fetch(`${API_BASE}/chat/messages/progress`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ session_id: sessionId, message })
+  })
+  if (!response.ok || !response.body) {
+    throw new Error('规划进度流请求失败')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  let finalData = null
+
+  const handleLine = (line) => {
+    const text = line.trim()
+    if (!text) return
+    const event = JSON.parse(text)
+    onEvent?.(event)
+    if (event.type === 'final') {
+      finalData = event.data
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    lines.forEach(handleLine)
+  }
+
+  if (buffer.trim()) {
+    handleLine(buffer)
+  }
+  if (!finalData) {
+    throw new Error('规划进度流没有返回最终结果')
+  }
+  return finalData
+}
+
 export async function streamMessage(sessionId, message, onChunk) {
   const response = await fetch(`${API_BASE}/chat/messages/stream`, {
     method: 'POST',
