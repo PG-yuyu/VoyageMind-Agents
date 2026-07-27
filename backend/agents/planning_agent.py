@@ -493,8 +493,9 @@ class PlanningAgent:
         total_cost = data.get("total_cost_estimate", 0) or 0
 
         days = []
-        for day_data in data.get("days", []):
-            day_num = day_data.get("day", 1)
+        for day_idx, day_data in enumerate(data.get("days", [])):
+            # 按数组位置确定 day 编号，避免 LLM 输出错误 day 值
+            day_num = day_idx + 1
             raw_items = day_data.get("items", [])
 
             # 补全每个 item 的必填字段

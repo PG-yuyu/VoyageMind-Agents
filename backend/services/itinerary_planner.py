@@ -516,8 +516,8 @@ def _make_item(
         end_time=end,
         duration_minutes=duration,
         route_from_previous_id=None,
-        cost_per_person=round(cost_per_person, 2),
-        total_cost=round(total, 2),
+        cost_per_person=round(cost_per_person or 0, 2),
+        total_cost=round(total or 0, 2),
         locked=locked,
         note=note,
     )

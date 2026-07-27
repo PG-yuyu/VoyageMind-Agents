@@ -810,16 +810,25 @@ function applyBackendItinerary(backendItinerary) {
   const city = requirements.value.city || '天津'
 
   itineraryDays.value = (backendItinerary.days || []).map((dayData) => {
+    let totalRouteMin = 0
     const items = (dayData.items || []).map((item) => {
       const place = item._place || {}
       const itemType = item.item_type || 'attraction'
+      // 优先使用后端计算的路线文本，其次使用地点地址
+      const routeText = item.route
+        || (item._route_duration_minutes
+            ? `约 ${item._route_duration_minutes} 分钟`
+            : place.address || '')
+      // 累加路线耗时
+      const dur = Number(item._route_duration_minutes) || 0
+      if (dur > 0 && itemType === 'attraction') totalRouteMin += dur
       return {
         time: item.start_time || '09:00',
         title: place.name || item.note || item.place_id || itemType,
         tag: typeToTag(itemType, item, place),
         desc: item.note || place.short_description || '',
         cost: item.total_cost || 0,
-        route: place.address || '',
+        route: routeText,
       }
     })
 
@@ -828,6 +837,9 @@ function applyBackendItinerary(backendItinerary) {
     const walkingStr = walkingM >= 1000
       ? `${(walkingM / 1000).toFixed(1)} 公里`
       : `${walkingM} 米`
+    const routeTimeStr = totalRouteMin > 0
+      ? `${totalRouteMin} 分钟`
+      : '待计算'
 
     return {
       day: dayData.day,
@@ -836,7 +848,7 @@ function applyBackendItinerary(backendItinerary) {
       walking: walkingStr,
       cost: totalCost,
       hotel: '参考酒店',
-      routeTime: '待计算',
+      routeTime: routeTimeStr,
       area: city,
       highlights: [],
       items,

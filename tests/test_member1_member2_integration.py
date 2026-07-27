@@ -311,10 +311,12 @@ def test_create_trip_branch_calls_member2_integration_service() -> None:
     assert integration_service.called is True
     assert integration_service.requirements == request
     assert integration_service.original_text == "帮我规划天津两日游，想看近代建筑。"
-    assert response.workflow_status == "planning"
+    # 归一化后处理使降级规则引擎也能生成有效行程，因此状态为 completed
+    assert response.workflow_status == "completed"
     assert response.recommendation_result is not None
     assert response.map_resources is not None
     assert response.routes is not None
+    assert response.itinerary is not None, "归一化后应生成有效行程"
     assert chatbot_service.context is not None
     assert "recommendation_result" in chatbot_service.context
     statuses = {
