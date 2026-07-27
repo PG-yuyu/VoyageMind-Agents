@@ -112,10 +112,25 @@
               :class="message.role"
             >
               <span>{{ message.role === 'user' ? '你' : 'AI 导游' }}</span>
-              <div v-if="message.audioUrl" class="guide-voice-playback">
-                <p>{{ message.content || '已发送一条语音导游问题' }}</p>
-                <audio :src="message.audioUrl" :type="message.audioType || 'audio/webm'" controls preload="metadata"></audio>
-              </div>
+              <button
+                v-if="message.audioUrl"
+                class="voice-bubble guide-voice-bubble"
+                :class="{ playing: guidePlayingVoiceUrl === message.audioUrl }"
+                @click="toggleGuideVoicePlayback($event, message.audioUrl)"
+              >
+                <span class="voice-bubble__icon"></span>
+                <span class="voice-bubble__waves"><i></i><i></i><i></i></span>
+                <span class="voice-bubble__label">{{ message.content || '语音导游问题' }}</span>
+                <span class="voice-bubble__time">语音</span>
+                <audio
+                  :src="message.audioUrl"
+                  :type="message.audioType || 'audio/webm'"
+                  preload="metadata"
+                  data-guide-voice-player="true"
+                  @ended="stopGuideVoicePlayback(message.audioUrl)"
+                  @pause="stopGuideVoicePlayback(message.audioUrl)"
+                ></audio>
+              </button>
               <p v-else-if="message.content">{{ message.content }}</p>
               <p v-else class="guide-thinking"><i></i><i></i><i></i></p>
             </article>
@@ -208,6 +223,7 @@ const guideLoading = ref(false)
 const guideVoiceRecording = ref(false)
 const guideVoiceHint = ref('')
 const guideVoiceError = ref('')
+const guidePlayingVoiceUrl = ref('')
 const guideVoiceObjectUrls = []
 let guideMessageId = 0
 let guideVoiceRecorder = null
@@ -216,6 +232,28 @@ let guideVoiceRecognition = null
 let amapApi = null
 let amapMarkers = []
 let amapPolylines = []
+
+function toggleGuideVoicePlayback(event, url) {
+  const audio = event.currentTarget.querySelector('audio')
+  if (!audio) return
+  if (guidePlayingVoiceUrl.value === url && !audio.paused) {
+    audio.pause()
+    guidePlayingVoiceUrl.value = ''
+    return
+  }
+  document.querySelectorAll('audio[data-guide-voice-player="true"]').forEach((item) => {
+    if (item !== audio) item.pause()
+  })
+  audio.currentTime = 0
+  audio.play()
+  guidePlayingVoiceUrl.value = url
+}
+
+function stopGuideVoicePlayback(url) {
+  if (guidePlayingVoiceUrl.value === url) {
+    guidePlayingVoiceUrl.value = ''
+  }
+}
 
 watch(
   () => props.resources,
@@ -1255,24 +1293,8 @@ function clamp(value, min, max) {
   background: #eef3ff;
 }
 
-.guide-voice-playback {
-  display: grid;
-  gap: 8px;
-  padding: 12px 14px;
-  border: 1px solid #b9c8ff;
-  border-radius: 16px;
-  background: #eef3ff;
-}
-
-.guide-voice-playback p {
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.guide-voice-playback audio {
-  width: min(320px, 100%);
-  height: 34px;
+.guide-voice-bubble {
+  width: min(300px, 100%);
 }
 
 .guide-panel__quick {
