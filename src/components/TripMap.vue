@@ -54,7 +54,7 @@
 
       </section>
 
-      <aside class="trip-map__side">
+      <aside class="trip-map__side" :class="{ 'is-guide': viewMode === 'guide' }">
         <template v-if="viewMode === 'info'">
           <section v-if="selectedResource" class="selected-place">
             <div>
@@ -822,6 +822,10 @@ function clamp(value, min, max) {
   overflow: hidden;
 }
 
+.trip-map__side.is-guide {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .selected-place {
   display: grid;
   gap: 12px;
@@ -934,6 +938,7 @@ function clamp(value, min, max) {
 }
 
 .guide-panel {
+  align-self: stretch;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 12px;
