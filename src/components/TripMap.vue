@@ -442,6 +442,7 @@ async function startGuideVoiceInput() {
     }
     guideVoiceRecorder.onstop = () => {
       stream.getTracks().forEach((track) => track.stop())
+      stopGuideHiddenSpeechRecognition()
       const audioBlob = new Blob(guideVoiceChunks, { type: guideVoiceRecorder?.mimeType || 'audio/webm' })
       guideVoiceRecorder = null
       guideVoiceChunks = []
@@ -460,7 +461,6 @@ async function startGuideVoiceInput() {
 }
 
 function stopGuideVoiceInput() {
-  stopGuideHiddenSpeechRecognition()
   if (guideVoiceRecorder && guideVoiceRecorder.state !== 'inactive') {
     guideVoiceRecorder.stop()
   }
@@ -470,6 +470,8 @@ function stopGuideVoiceInput() {
 async function submitGuideVoiceBlob(audioBlob) {
   if (!guideTarget.value) return
   guideLoading.value = true
+  const audioUrl = URL.createObjectURL(audioBlob)
+  guideVoiceObjectUrls.push(audioUrl)
   try {
     const data = await understandVoice({
       sessionId: props.sessionId || 'demo_session',
@@ -477,20 +479,28 @@ async function submitGuideVoiceBlob(audioBlob) {
       audioBlob,
       clientHint: guideVoiceHint.value
     })
-    const question = data.understood_text || guideVoiceHint.value || '?????????????'
-    const audioUrl = URL.createObjectURL(audioBlob)
-    guideVoiceObjectUrls.push(audioUrl)
     guideMessages.value.push({
       id: ++guideMessageId,
       role: 'user',
-      content: data.display_text || '???????????',
+      content: data.display_text || '\u5df2\u53d1\u9001\u4e00\u6761\u8bed\u97f3\u5bfc\u6e38\u95ee\u9898',
       audioUrl,
       audioType: audioBlob.type || 'audio/webm'
     })
+
+    if (!data.understood_text) {
+      guideMessages.value.push({
+        id: ++guideMessageId,
+        role: 'assistant',
+        content: '\u8fd9\u6761\u8bed\u97f3\u6211\u6ca1\u6709\u542c\u6e05\uff0c\u8bf7\u518d\u5f55\u4e00\u6b21\uff0c\u6216\u8005\u76f4\u63a5\u6253\u5b57\u95ee\u6211\u3002'
+      })
+      guideLoading.value = false
+      return
+    }
+
     guideLoading.value = false
-    await requestGuideAnswer(question)
+    await requestGuideAnswer(data.understood_text)
   } catch (error) {
-    guideVoiceError.value = '????????????????????'
+    guideVoiceError.value = '\u8bed\u97f3\u53d1\u9001\u5931\u8d25\uff0c\u8bf7\u518d\u8bd5\u4e00\u6b21\u6216\u6539\u7528\u6587\u5b57\u8f93\u5165\u3002'
     guideLoading.value = false
   }
 }
