@@ -55,9 +55,9 @@ class GuideService:
     async def stream_answer(self, payload: dict[str, Any]) -> AsyncIterator[str]:
         result = self.answer(payload)
         answer = result["answer"]
-        for index in range(0, len(answer), 10):
-            yield answer[index : index + 10]
-            await asyncio.sleep(0.012)
+        for chunk in self._stream_chunks(answer):
+            yield chunk
+            await asyncio.sleep(0.028)
 
     def _build_context(self, target_type: str, target: dict[str, Any]) -> dict[str, Any]:
         if target_type == "route":
@@ -226,6 +226,19 @@ class GuideService:
             f"· 预算提醒：{price_text}。\n"
             "· 你可以继续问我适合停留多久、附近吃什么、怎么和下一站衔接。"
         )
+
+    @staticmethod
+    def _stream_chunks(text: str) -> list[str]:
+        chunks: list[str] = []
+        buffer = ""
+        for char in text:
+            buffer += char
+            if char in "\n。！？；，、" or len(buffer) >= 5:
+                chunks.append(buffer)
+                buffer = ""
+        if buffer:
+            chunks.append(buffer)
+        return chunks
 
     @staticmethod
     def _format_answer(answer: str) -> str:
