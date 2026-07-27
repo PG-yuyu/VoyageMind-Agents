@@ -82,6 +82,8 @@ class TravelRequest(BaseModel):
     interests: list[str] = Field(default_factory=list)
     must_visit: list[str] = Field(default_factory=list)
     avoid_places: list[str] = Field(default_factory=list)
+    preferred_areas: list[str] = Field(default_factory=list)
+    avoid_areas: list[str] = Field(default_factory=list)
     food_preferences: list[str] = Field(default_factory=list)
     food_avoidances: list[str] = Field(default_factory=list)
     transport_modes: list[str] = Field(default_factory=lambda: ["walking", "transit"])

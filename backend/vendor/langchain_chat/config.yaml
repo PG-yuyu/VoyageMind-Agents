@@ -50,7 +50,7 @@ providers:
 
 # 生成参数（所有模型共用）
 temperature: 0.7
-max_tokens: 2048
+max_tokens: 8192
 
 # 存储配置
 # storage.type 由环境覆盖文件（config.{env}.yaml）指定，这里不设默认值。

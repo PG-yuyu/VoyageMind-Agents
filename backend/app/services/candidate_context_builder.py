@@ -123,16 +123,29 @@ class CandidateContextBuilder:
         place_type: str,
         context: RecommendationContext | None,
     ) -> str | None:
-        """只有明确区域硬约束支持时，才把 area 作为查询硬过滤。"""
+        """判断 LLM 策略中的 area 是否可作为查询硬过滤。
+
+        允许 area 透传的条件（满足任一即可）：
+        1. 有成员一传入的明确区域硬约束支持（原有逻辑）
+        2. area 名称或其核心关键词出现在用户原文或语义偏好中
+           —— 确保 LLM 是从用户输入推断的，而非凭空编造
+        """
 
         if filter_policy.area is None or context is None:
             return None
+
+        # 条件 1：明确硬约束支持
         if self._area_supported_by_explicit_constraint(
             context,
             place_type,
             filter_policy.area,
         ):
             return filter_policy.area
+
+        # 条件 2：area 关键词在用户输入中出现过
+        if self._area_mentioned_in_user_input(context, filter_policy.area):
+            return filter_policy.area
+
         return None
 
     @staticmethod
@@ -158,6 +171,32 @@ class CandidateContextBuilder:
                 if scope in scope_aliases and str(constraint.value) == area:
                     return True
         return False
+
+    @staticmethod
+    def _area_mentioned_in_user_input(
+        context: RecommendationContext,
+        area: str,
+    ) -> bool:
+        """检查 area 名称或其核心关键词是否在用户输入中出现过。
+
+        支持模糊匹配：如 area="滨海新区"，用户说"滨海部分"即可命中。
+        提取 area 的核心地名（去掉"区""新区"等后缀）与用户输入做子串匹配。
+        """
+
+        # 去掉常见行政区后缀，提取核心地名
+        core_name = area
+        for suffix in ["新区", "区", "县", "镇", "街道"]:
+            if core_name.endswith(suffix):
+                core_name = core_name[: -len(suffix)]
+                break
+
+        # 搜索源：用户原文 + 语义偏好
+        sources = [context.original_text or ""]
+        for pref in context.semantic_preferences:
+            sources.append(pref.text or "")
+
+        combined = " ".join(sources)
+        return core_name in combined or area in combined
 
     @staticmethod
     def _find_filter(

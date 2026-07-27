@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from datetime import date as date_type
 from typing import Any, Callable
 
 from backend.agents.planning_state import PlanningPhase, PlanningState
@@ -264,6 +266,22 @@ class PlanningAgent:
             pref_lines.append(f"- {p.get('text', '')}")
         pref_str = "\n".join(pref_lines) if pref_lines else "（无）"
 
+        # 构建区域约束描述
+        area_lines = []
+        preferred = req.get("preferred_areas", [])
+        avoided = req.get("avoid_areas", [])
+        if preferred:
+            area_lines.append(
+                f"- 用户希望集中在以下区域：{', '.join(preferred)}。"
+                f"所有景点、酒店、餐厅必须优先从这些区域选择。"
+            )
+        if avoided:
+            area_lines.append(
+                f"- 用户明确不想去以下区域：{', '.join(avoided)}。"
+                f"绝对不要安排这些区域内的任何地点。"
+            )
+        area_str = "\n".join(area_lines) if area_lines else "（无特殊区域约束）"
+
         prompt = ITINERARY_PLANNING_PROMPT.format(
             daily_themes=json.dumps(policy.get("daily_themes", []), ensure_ascii=False),
             pace_strategy=policy.get("pace_strategy", "normal"),
@@ -282,9 +300,23 @@ class PlanningAgent:
             restaurants=rests_str,
             routes=route_str,
             semantic_preferences=pref_str,
+            area_constraints=area_str,
         )
 
         raw = self._llm(prompt)
+
+        # LLM 可能返回空文本（如 token 超限截断），重试一次
+        if not raw or not raw.strip():
+            logger.warning("LLM 返回空文本，使用简化提示词重试")
+            retry_prompt = (
+                f"请为{req.get('days', 1)}天天津行程输出 JSON。"
+                f"必须包含 days 数组，每个 day 有 items。"
+                f"景点候选: {[a.get('name', '') for a in attractions[:5]]}。"
+                f"区域约束: {area_str}。"
+                f"只输出 JSON，不要其他文字。"
+            )
+            raw = self._llm(retry_prompt)
+
         data = self._parse_json(raw)
 
         # 构建标准行程结构
@@ -486,9 +518,15 @@ class PlanningAgent:
 
             daily_cost = sum(float(it["total_cost"]) for it in items)
             walking = day_data.get("walking_distance_m", 0) or 0
+            # date 优先使用 LLM 输出，其次 requirements 中的 start_date，最后用今天
+            day_date = (
+                day_data.get("date")
+                or requirements.get("start_date")
+                or date_type.today().isoformat()
+            )
             days.append({
                 "day": day_num,
-                "date": day_data.get("date", ""),
+                "date": day_date,
                 "items": items,
                 "daily_cost": round(daily_cost, 2),
                 "walking_distance_m": walking,
@@ -509,22 +547,111 @@ class PlanningAgent:
         }
 
     def _parse_json(self, raw: str) -> dict:
-        """解析 LLM 返回的 JSON，处理 markdown 代码块包裹。"""
+        """解析 LLM 返回的 JSON，处理 markdown 代码块包裹。
+
+        相比成员二的 JSON 解析，这里增加了：
+        1. 空/无效输入保护
+        2. 更宽松的 markdown 代码块提取
+        3. 失败时抛出明确错误（包含原始输出片段，便于调试）
+        """
+
+        if not raw or not raw.strip():
+            raise ValueError(
+                "LLM 返回了空文本，请检查模型配置或提示词长度是否超限"
+            )
+
         text = raw.strip()
-        if text.startswith("```"):
-            if "\n" in text:
-                first_nl = text.index("\n")
-                start = first_nl + 1
-                end = text.rfind("```")
-                if end > start:
-                    text = text[start:end].strip()
-                else:
-                    text = text[first_nl + 1:].strip()
-            else:
-                # 单行格式: ```json{...}```
-                text = text[3:].strip()
-                if text.endswith("```"):
-                    text = text[:-3].strip()
-                if text.startswith("json"):
-                    text = text[4:].strip()
-        return json.loads(text)
+
+        # 1) 尝试直接解析纯 JSON
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # 2) 尝试从 markdown 代码块中提取 JSON
+        #    ```json ... ``` 或 ``` ... ```
+        code_block_patterns = [
+            (r"```json\s*\n(.*?)```", re.DOTALL),
+            (r"```\s*\n(.*?)```", re.DOTALL),
+        ]
+        for pattern, flags in code_block_patterns:
+            match = re.search(pattern, text, flags)
+            if match:
+                try:
+                    return json.loads(match.group(1).strip())
+                except json.JSONDecodeError:
+                    continue
+
+        # 3) 尝试提取最外层 {...} 对象
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        # 3.5) 尝试修复截断的 JSON（LLM 输出超 token 限制时常见）
+        #       策略：去掉最后一行不完整的内容，补全未闭合的括号
+        if start != -1:
+            truncated = self._repair_truncated_json(text, start)
+            if truncated is not None:
+                return truncated
+
+        # 4) 全部失败 → 抛出包含原始输出片段的错误
+        preview = raw[:300] if len(raw) > 300 else raw
+        raise ValueError(
+            f"LLM 返回内容无法解析为 JSON。前 300 字符: {preview}"
+        )
+
+    @staticmethod
+    def _repair_truncated_json(text: str, start: int) -> dict | None:
+        """尝试修复因 token 限制被截断的 JSON。
+
+        策略：
+        1. 去掉最后一行（可能不完整）
+        2. 补全未闭合的字符串、数组和对象
+        3. 如果仍然不合法，逐步去掉尾部内容重试
+        """
+        # 从第一个 { 开始
+        json_text = text[start:]
+
+        # 去掉最后一行不完整的内容
+        lines = json_text.split("\n")
+        # 如果最后一行看起来不完整（没有逗号、括号等结束符）
+        last_line = lines[-1].strip() if lines else ""
+        if last_line and not last_line.rstrip().endswith((",", "{", "}", "[", "]")):
+            # 去掉最后不完整的行
+            json_text = "\n".join(lines[:-1])
+
+        # 补全未闭合的结构
+        # 统计未闭合的括号
+        open_braces = json_text.count("{") - json_text.count("}")
+        open_brackets = json_text.count("[") - json_text.count("]")
+
+        # 检查是否在字符串中间截断（奇数个引号）
+        in_string = False
+        repaired = []
+        i = 0
+        while i < len(json_text):
+            ch = json_text[i]
+            if ch == '"' and (i == 0 or json_text[i - 1] != "\\"):
+                in_string = not in_string
+            repaired.append(ch)
+            i += 1
+
+        # 如果在字符串中间截断，补一个引号
+        if in_string:
+            repaired.append('"')
+        json_text = "".join(repaired)
+
+        # 补全未闭合的括号
+        json_text += "]" * open_brackets
+        json_text += "}" * open_braces
+
+        try:
+            return json.loads(json_text)
+        except json.JSONDecodeError:
+            pass
+
+        return None

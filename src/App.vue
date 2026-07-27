@@ -1192,9 +1192,30 @@ async function analyzeSmartAdjustment() {
         itineraryDays.value = itinerary.days.map((dayData, di) => {
           const origDay = itineraryDays.value[di] || { items: [], cost: 0, walking: '0 公里' }
           const dayIdxMap = origByDayIdx[dayData.day] || {}
+          const uiItems = (dayData.items || []).map((item, ii) => {
+            const origItem = dayIdxMap[ii] || {}
+            // 判断后端是否真的修改了地点（排除 demo LLM 占位符 place_id）
+            const placeChanged = origItem.title && item.place_id &&
+              !String(origItem.title).includes(String(item.place_id)) &&
+              !String(item.place_id).startsWith('place_') &&
+              !String(item.place_id).startsWith('alt_place_')
+            const noteChanged = item.note && item.note !== origItem.desc
+            return {
+              time: item.start_time || origItem.time || '09:00',
+              // 始终保留原始中文标题，绝不用后端 note 覆盖标题
+              title: origItem.title || item.note || item.place_id || item.item_type || '行程项',
+              tag: origItem.tag || item.item_type || '普通',
+              // note 变化时作为描述展示（如"已替换为室内方案"）
+              desc: noteChanged ? item.note : (origItem.desc || ''),
+              cost: item.total_cost && item.total_cost !== origItem.cost ? item.total_cost : (origItem.cost || item.total_cost || 0),
+              route: origItem.route || '',
+              // 标记是否被后端修改过
+              _modified: placeChanged || noteChanged,
+            }
+          })
           return {
             day: dayData.day,
-            title: origDay.title || `第 ${dayData.day} 天`,
+            title: buildGeneratedDayTitle(uiItems, dayData.day),
             date: /^\d{4}-\d{2}-\d{2}$/.test(dayData.date) ? dayData.date : (origDay.date || '2026-07-25'),
             walking: `${(dayData.walking_distance_m || 0) > 1000 ? ((dayData.walking_distance_m || 0) / 1000).toFixed(1) + ' 公里' : (dayData.walking_distance_m || 0) + ' 米'}`,
             cost: dayData.daily_cost || origDay.cost || 0,
@@ -1202,27 +1223,7 @@ async function analyzeSmartAdjustment() {
             routeTime: origDay.routeTime || '待计算',
             area: origDay.area || '天津',
             highlights: origDay.highlights || [],
-            items: (dayData.items || []).map((item, ii) => {
-              const origItem = dayIdxMap[ii] || {}
-              // 判断后端是否真的修改了地点（排除 demo LLM 占位符 place_id）
-              const placeChanged = origItem.title && item.place_id &&
-                !String(origItem.title).includes(String(item.place_id)) &&
-                !String(item.place_id).startsWith('place_') &&
-                !String(item.place_id).startsWith('alt_place_')
-              const noteChanged = item.note && item.note !== origItem.desc
-              return {
-                time: item.start_time || origItem.time || '09:00',
-                // 始终保留原始中文标题，绝不用后端 note 覆盖标题
-                title: origItem.title || item.note || item.place_id || item.item_type || '行程项',
-                tag: origItem.tag || item.item_type || '普通',
-                // note 变化时作为描述展示（如"已替换为室内方案"）
-                desc: noteChanged ? item.note : (origItem.desc || ''),
-                cost: item.total_cost && item.total_cost !== origItem.cost ? item.total_cost : (origItem.cost || item.total_cost || 0),
-                route: origItem.route || '',
-                // 标记是否被后端修改过
-                _modified: placeChanged || noteChanged,
-              }
-            }),
+            items: uiItems,
           }
         })
         baseVersion.value = resp.data.itinerary?.version || baseVersion.value + 1
@@ -1354,9 +1355,23 @@ async function applySmartAdjustment() {
         itineraryDays.value = itinerary.days.map((dayData) => {
           const origDay = itineraryDays.value.find(d => d.day === dayData.day) || { items: [], cost: 0, highlights: [] }
           const dayIdxMap = origByDayIdx2[dayData.day] || {}
+          const uiItems = (dayData.items || []).map((item, ii) => {
+            const origItem = dayIdxMap[ii] || {}
+            const effectiveNote = (item.note && item.note !== origItem.desc && !String(item.note || '').startsWith('已替换原'))
+              ? item.note
+              : (origItem.desc || '')
+            return {
+              time: item.start_time || origItem.time || '09:00',
+              title: origItem.title || item.note || item.place_id || item.item_type || '行程项',
+              tag: origItem.tag || item.item_type || '普通',
+              desc: effectiveNote,
+              cost: origItem.cost || item.total_cost || 0,
+              route: origItem.route || '',
+            }
+          })
           return {
             day: dayData.day,
-            title: origDay.title || `第 ${dayData.day} 天`,
+            title: buildGeneratedDayTitle(uiItems, dayData.day),
             date: /^\d{4}-\d{2}-\d{2}$/.test(dayData.date) ? dayData.date : (origDay.date || '2026-07-25'),
             walking: `${(dayData.walking_distance_m || 0) > 1000 ? ((dayData.walking_distance_m || 0) / 1000).toFixed(1) + ' 公里' : (dayData.walking_distance_m || 0) + ' 米'}`,
             cost: dayData.daily_cost || origDay.cost || 0,
@@ -1364,20 +1379,7 @@ async function applySmartAdjustment() {
             routeTime: origDay.routeTime || '待计算',
             area: origDay.area || '天津',
             highlights: origDay.highlights || [],
-            items: (dayData.items || []).map((item, ii) => {
-              const origItem = dayIdxMap[ii] || {}
-              const effectiveNote = (item.note && item.note !== origItem.desc && !String(item.note || '').startsWith('已替换原'))
-                ? item.note
-                : (origItem.desc || '')
-              return {
-                time: item.start_time || origItem.time || '09:00',
-                title: origItem.title || item.note || item.place_id || item.item_type || '行程项',
-                tag: origItem.tag || item.item_type || '普通',
-                desc: effectiveNote,
-                cost: origItem.cost || item.total_cost || 0,
-                route: origItem.route || '',
-              }
-            }),
+            items: uiItems,
           }
         })
         baseVersion.value = resp.data.itinerary?.version || baseVersion.value + 1
@@ -1505,6 +1507,9 @@ function showLocalAdjustment(text, action, targetDay) {
     })
     newDay.highlights = ['已根据要求调整', '已在本地模拟调整']
   }
+
+  // 根据修改后的 items 重新计算日期大标题
+  newDay.title = buildGeneratedDayTitle(newDay.items, targetDay)
 
   // 更新到响应式状态
   const newDays = [...itineraryDays.value]

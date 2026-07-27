@@ -17,6 +17,34 @@ INTEREST_WORDS = [
 ]
 FOOD_WORDS = ["天津菜", "清淡", "素食", "煎饼果子", "锅巴菜", "熟梨糕", "八珍豆腐"]
 
+# 区域关键词 → 标准化区域名映射
+# 用户口语化区域词会映射到 places.json 中的 area 字段值
+AREA_KEYWORD_MAP = {
+    "滨海": "滨海新区",
+    "滨海新区": "滨海新区",
+    "塘沽": "滨海新区",
+    "市中心": "和平区",
+    "市区": "和平区",
+    "和平": "和平区",
+    "河西": "河西区",
+    "南开": "南开区",
+    "河北": "河北区",
+    "河东": "河东区",
+    "红桥": "红桥区",
+    "西青": "西青区",
+    "津南": "津南区",
+    "东丽": "东丽区",
+    "北辰": "北辰区",
+    "武清": "武清区",
+    "宝坻": "宝坻区",
+    "静海": "静海区",
+    "宁河": "宁河区",
+    "蓟州": "蓟州区",
+}
+
+# "不想在市中心" → 需要排除的市中心各区
+CITY_CENTER_AREAS = ["和平区", "河西区", "南开区", "河北区", "河东区", "红桥区"]
+
 
 class RequirementService:
     def extract(
@@ -83,7 +111,27 @@ class RequirementService:
         if must_visit:
             request.must_visit = sorted(set(request.must_visit + must_visit))
 
-        walk_match = re.search(r"步行.*?(\d+)\s*(公里|km|千米)", message, re.IGNORECASE)
+        # ── 区域偏好提取 ──────────────────────────────────
+        # "在XX部分" / "在XX区" / "想去XX区" → preferred_areas
+        preferred_areas = self._extract_preferred_areas(message)
+        if preferred_areas:
+            request.preferred_areas = sorted(
+                set(request.preferred_areas + preferred_areas)
+            )
+
+        # ── 区域回避提取 ──────────────────────────────────
+        # "不想在XX" / "不在XX" / "不去XX区" → avoid_areas
+        avoid_areas = self._extract_avoid_areas(message)
+        if avoid_areas:
+            request.avoid_areas = sorted(set(request.avoid_areas + avoid_areas))
+
+        # 同时把区域回避加入 avoid_places 以保证下游可见
+        if avoid_areas:
+            request.avoid_places = sorted(set(request.avoid_places + avoid_areas))
+
+        walk_match = re.search(
+            r"步行.*?(\d+)\s*(公里|km|千米)", message, re.IGNORECASE
+        )
         if walk_match:
             request.walking_limit_m = int(walk_match.group(1)) * 1000
 
@@ -115,3 +163,61 @@ class RequirementService:
             need_follow_up=bool(missing_fields),
             follow_up_question=follow_up,
         )
+
+    @staticmethod
+    def _extract_preferred_areas(message: str) -> list[str]:
+        """从用户输入中提取偏好的区域。
+
+        匹配模式：
+        - "在XX部分" → 如"在滨海部分" → 滨海新区
+        - "在XX区" / "想去XX区"
+        - 直接提及区域关键词
+        """
+        areas: list[str] = []
+
+        # 模式 1："在XX部分" / "XX部分"
+        part_match = re.findall(r"在?\s*(\S+?)部分", message)
+        for keyword in part_match:
+            mapped = AREA_KEYWORD_MAP.get(keyword)
+            if mapped and mapped not in areas:
+                areas.append(mapped)
+
+        # 模式 2：直接匹配区域关键词
+        for keyword, mapped in AREA_KEYWORD_MAP.items():
+            if keyword in message and mapped not in areas:
+                # 排除否定语境："不想在XX" / "不在XX"
+                if not re.search(
+                    rf"(?:不想在|不在|不去|不选|避开|排除)\s*{keyword}", message
+                ):
+                    areas.append(mapped)
+
+        return areas
+
+    @staticmethod
+    def _extract_avoid_areas(message: str) -> list[str]:
+        """从用户输入中提取需要回避的区域。
+
+        匹配模式：
+        - "不想在XX" / "不在XX" / "不去XX"
+        - "避开XX" / "排除XX"
+        - "市中心" → 映射到全部中心城区
+        """
+        areas: list[str] = []
+
+        # 模式 1："不想在XX" / "不在XX" / "不去XX"
+        avoid_match = re.findall(
+            r"(?:不想在|不在|不去|不选|避开|排除)\s*(\S+?)(?:[，。,\.\s]|$)", message
+        )
+        for keyword in avoid_match:
+            keyword_clean = keyword.strip()
+            if keyword_clean == "市中心" or keyword_clean == "市区":
+                # "不想在市中心" → 排除所有中心城区
+                for area in CITY_CENTER_AREAS:
+                    if area not in areas:
+                        areas.append(area)
+            else:
+                mapped = AREA_KEYWORD_MAP.get(keyword_clean)
+                if mapped and mapped not in areas:
+                    areas.append(mapped)
+
+        return areas

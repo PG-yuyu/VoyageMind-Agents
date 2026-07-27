@@ -150,6 +150,26 @@ class RecommendationIntegrationService:
             preferences.append(
                 SemanticPreference(text=f"必须考虑{place}", scope="attraction")
             )
+        # 区域偏好：用户希望集中在某区域
+        for area in requirements.preferred_areas:
+            preferences.append(
+                SemanticPreference(
+                    text=f"优先选择{area}范围内的地点", scope="attraction"
+                )
+            )
+        # 区域回避：用户不想去某区域
+        for area in requirements.avoid_areas:
+            preferences.append(
+                SemanticPreference(
+                    text=f"必须避开{area}范围内的地点", scope="attraction"
+                )
+            )
+        # 地点回避
+        for place in requirements.avoid_places:
+            # avoid_places 可能包含区域名（如"和平区"）或具体地点名
+            preferences.append(
+                SemanticPreference(text=f"必须避开{place}", scope="attraction")
+            )
         for food in requirements.food_preferences:
             preferences.append(
                 SemanticPreference(text=food, scope="restaurant")

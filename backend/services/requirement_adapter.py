@@ -36,12 +36,18 @@ class RequirementAdapter:
                 "返回 JSON 格式："
                 '{"city":null或"天津","days":整数或null,"people":整数或null,'
                 '"total_budget":整数或null,"interests":[],"must_visit":[],'
+                '"avoid_places":[],"preferred_areas":[],"avoid_areas":[],'
                 '"food_preferences":[],"food_avoidances":[],"transport_modes":[],'
                 '"walking_limit_m":整数或null,"daily_start_time":null或"HH:MM",'
                 '"daily_end_time":null或"HH:MM","travel_pace":null或'
-                '"relaxed|normal|compact"}\n'
+                '\\"relaxed|normal|compact\\"}\n'
+                "注意：preferred_areas 是用户想去的区域（如滨海新区），"
+                "avoid_areas 是用户不想去的区域（如和平区=市中心），"
+                "avoid_places 是用户明确不去的具体地点。"
+                "如果用户说\"不想在市中心\"，avoid_areas 应包含市中心对应的区。\n"
                 f"用户输入：{message}"
             ),
+
             fallback={},
         )
         requirements = self._merge_ai_payload(rule_result.requirements, ai_payload)
@@ -99,6 +105,9 @@ class RequirementAdapter:
         for field in [
             "interests",
             "must_visit",
+            "avoid_places",
+            "preferred_areas",
+            "avoid_areas",
             "food_preferences",
             "food_avoidances",
             "transport_modes",

@@ -35,7 +35,9 @@ class LLMJsonService:
         try:
             raw_reply = self.chatbot_service.chat(system_prompt, user_prompt)
         except Exception as exc:
-            raise ModelDecisionError("大模型调用失败，请检查配置后重试") from exc
+            raise ModelDecisionError(
+                f"大模型调用失败，请检查配置后重试。原因：{exc}"
+            ) from exc
 
         parsed = self._parse_json_object(str(raw_reply))
         if parsed is None:
@@ -47,7 +49,9 @@ class LLMJsonService:
             try:
                 raw_reply = self.chatbot_service.chat(system_prompt, retry_prompt)
             except Exception as exc:
-                raise ModelDecisionError("大模型调用失败，请检查配置后重试") from exc
+                raise ModelDecisionError(
+                    f"大模型调用失败（重试），请检查配置后重试。原因：{exc}"
+                ) from exc
             parsed = self._parse_json_object(str(raw_reply))
         if parsed is None:
             raise ModelDecisionError("大模型输出不是合法 JSON，请重新调用模型重试")
