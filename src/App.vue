@@ -1123,6 +1123,8 @@ function applyBackendItinerary(backendItinerary) {
       const dur = Number(item._route_duration_minutes) || 0
       if (dur > 0 && itemType === 'attraction') totalRouteMin += dur
       return {
+        place_id: item.place_id || place.place_id || '',
+        item_type: itemType,
         time: item.start_time || '09:00',
         title: place.name || item.note || item.place_id || itemType,
         tag: typeToTag(itemType, item, place),
@@ -2288,8 +2290,11 @@ async function submitAuth() {
           :session-id="sessionId || 'demo_session'"
           :resources="mapResources"
           :routes="recommendedRoutes"
+          :itinerary-days="itineraryDays"
+          :active-day="activeDay"
           :loading="mapLoading"
           :error="mapError"
+          @change-day="activeDay = $event"
           @retry="loadMapResources"
         />
       </section>
