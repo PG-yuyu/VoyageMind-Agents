@@ -2245,23 +2245,6 @@ async function submitAuth() {
           </div>
 
           <aside class="trip-side">
-            <section class="panel mini-map-card">
-              <div class="mini-map-head">
-                <strong>当日路线</strong>
-                <span>{{ activeItinerary.walking }}</span>
-              </div>
-              <div class="mini-map">
-                <span class="mini-pin start">酒店</span>
-                <span class="mini-pin a">{{ routeStops[0] }}</span>
-                <span class="mini-pin b">{{ routeStops[1] }}</span>
-                <span class="mini-pin c">{{ routeStops[2] }}</span>
-                <span class="mini-pin d">{{ routeStops[3] }}</span>
-                <i class="mini-route one"></i>
-                <i class="mini-route two"></i>
-                <i class="mini-route three"></i>
-              </div>
-            </section>
-
             <section class="panel day-summary">
               <h3>当日摘要</h3>
               <div class="summary-row">

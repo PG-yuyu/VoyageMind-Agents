@@ -1160,8 +1160,8 @@ textarea {
 
 .itinerary-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 22px;
   align-items: start;
 }
 
@@ -1268,143 +1268,19 @@ textarea {
 
 .trip-side {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   align-self: start;
 }
 
 .trip-side .panel {
-  min-height: 164px;
-}
-
-.trip-side .mini-map-card {
-  min-height: 318px;
+  min-height: 150px;
+  padding: 24px;
 }
 
 .trip-side h3 {
   margin: 0 0 16px;
   color: #101827;
   font-size: 20px;
-}
-
-.mini-map-card {
-  overflow: hidden;
-}
-
-.mini-map-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.mini-map-head strong {
-  color: #101827;
-  font-size: 20px;
-}
-
-.mini-map-head span {
-  padding: 7px 10px;
-  border-radius: 999px;
-  background: #eef3ff;
-  color: #4f65ff;
-  font-weight: 900;
-}
-
-.mini-map {
-  position: relative;
-  height: 224px;
-  overflow: hidden;
-  border-radius: 22px;
-  background:
-    linear-gradient(90deg, rgba(79, 101, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(rgba(79, 101, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(135deg, #edf4ff, #e7f8f4);
-  background-size: 32px 32px, 32px 32px, auto;
-}
-
-.mini-map::after {
-  position: absolute;
-  right: -44px;
-  bottom: -48px;
-  width: 150px;
-  height: 150px;
-  border-radius: 999px;
-  background: rgba(20, 184, 166, 0.16);
-  content: "";
-}
-
-.mini-pin {
-  position: absolute;
-  z-index: 3;
-  padding: 6px 10px;
-  border: 2px solid #fff;
-  border-radius: 999px;
-  background: #172033;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 900;
-  box-shadow: 0 12px 26px rgba(31, 41, 55, 0.16);
-}
-
-.mini-pin.start {
-  left: 22px;
-  bottom: 30px;
-}
-
-.mini-pin.a {
-  left: 76px;
-  top: 38px;
-  background: #4f65ff;
-}
-
-.mini-pin.b {
-  right: 52px;
-  top: 92px;
-  background: #f59e0b;
-}
-
-.mini-pin.c {
-  right: 90px;
-  bottom: 34px;
-  background: #14b8a6;
-}
-
-.mini-pin.d {
-  right: 18px;
-  bottom: 88px;
-  background: #ef6f88;
-}
-
-.mini-route {
-  position: absolute;
-  z-index: 2;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(79, 101, 255, 0.78);
-  transform-origin: left center;
-}
-
-.mini-route.one {
-  left: 58px;
-  bottom: 72px;
-  width: 122px;
-  transform: rotate(-58deg);
-}
-
-.mini-route.two {
-  left: 116px;
-  top: 70px;
-  width: 144px;
-  transform: rotate(25deg);
-}
-
-.mini-route.three {
-  right: 46px;
-  bottom: 82px;
-  width: 102px;
-  background: rgba(20, 184, 166, 0.9);
-  transform: rotate(162deg);
 }
 
 .summary-row {
