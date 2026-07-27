@@ -567,39 +567,40 @@ function startPlanningProgressFlow(targetPage) {
 
 function updatePlanningProgressFromResult(response, mode = 'api') {
   const backendItinerary = response?.itinerary || response?.data?.itinerary
-  const recommendationDone = Boolean(response?.recommendation_result || recommendationResult.value)
-  const itineraryDone = Boolean(backendItinerary?.days?.length)
-  const evaluationDone = Boolean(response?.evaluation || evaluationResult.value)
-  const requirementsDone = Boolean(response?.requirements || mode === 'demo')
+  const demoItineraryDone = mode === 'demo' && hasPlan.value && itineraryDays.value.length > 0
+  const recommendationDone = Boolean(response?.recommendation_result || recommendationResult.value || demoItineraryDone)
+  const itineraryDone = Boolean(backendItinerary?.days?.length || demoItineraryDone)
+  const evaluationDone = Boolean(response?.evaluation || evaluationResult.value || demoItineraryDone)
+  const requirementsDone = Boolean(response?.requirements || demoItineraryDone)
 
   planningProgress.value = [
     {
       title: progressStepTemplates[0].title,
       desc: requirementsDone
-        ? (mode === 'demo' ? '已使用演示解析结果补全基础需求' : progressStepTemplates[0].done)
-        : '后端还没有返回完整需求字段',
-      status: requirementsDone ? 'done' : 'active'
+        ? (demoItineraryDone ? '已使用演示解析结果补全基础需求' : progressStepTemplates[0].done)
+        : '等待后端返回完整需求字段',
+      status: requirementsDone ? 'done' : 'pending'
     },
     {
       title: progressStepTemplates[1].title,
       desc: recommendationDone
-        ? '已收到推荐模块返回的地点候选'
+        ? (demoItineraryDone ? '已按演示规则生成地点候选' : '已收到推荐模块返回的地点候选')
         : '等待成员二推荐模块返回地点、餐厅和住宿',
-      status: recommendationDone ? 'done' : (requirementsDone ? 'active' : 'pending')
+      status: recommendationDone ? 'done' : 'pending'
     },
     {
       title: progressStepTemplates[2].title,
       desc: itineraryDone
-        ? routeProgressText()
-        : (mode === 'demo' ? '当前为前端演示行程，等待真实行程接口替换' : '等待成员三生成完整每日行程'),
-      status: itineraryDone ? 'done' : (recommendationDone || mode === 'demo' ? 'active' : 'pending')
+        ? (demoItineraryDone ? '已生成前端演示行程，后续可替换为真实规划接口' : routeProgressText())
+        : '等待成员三生成完整每日行程',
+      status: itineraryDone ? 'done' : 'pending'
     },
     {
       title: progressStepTemplates[3].title,
       desc: evaluationDone
-        ? progressStepTemplates[3].done
+        ? (demoItineraryDone ? '已完成演示预算与步行强度估算' : progressStepTemplates[3].done)
         : '等待预算、步行强度和开放时间校验结果',
-      status: evaluationDone ? 'done' : (itineraryDone ? 'active' : 'pending')
+      status: evaluationDone ? 'done' : 'pending'
     }
   ]
 }
