@@ -535,7 +535,7 @@ async function startVoiceInput(scene = 'plan') {
   voiceScene.value = scene
 
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-    voiceError.value = '当前浏览器不支持录音，请使用 Chrome 或 Edge。'
+    voiceError.value = '\u5f53\u524d\u6d4f\u89c8\u5668\u4e0d\u652f\u6301\u5f55\u97f3\uff0c\u8bf7\u7528 Chrome \u6216 Edge\u3002'
     return
   }
 
@@ -551,17 +551,15 @@ async function startVoiceInput(scene = 'plan') {
     }
     voiceRecorder.onstop = async () => {
       stream.getTracks().forEach((track) => track.stop())
-      stopHiddenSpeechRecognition()
       const audioBlob = new Blob(voiceChunks, { type: voiceRecorder?.mimeType || 'audio/webm' })
       voiceRecorder = null
       voiceRecording.value = false
       await submitVoiceBlob(audioBlob, scene)
     }
-    startHiddenSpeechRecognition()
     voiceRecorder.start()
     voiceRecording.value = true
   } catch (error) {
-    voiceError.value = '无法开启麦克风，请检查浏览器权限。'
+    voiceError.value = '\u65e0\u6cd5\u5f00\u542f\u9ea6\u514b\u98ce\uff0c\u8bf7\u68c0\u67e5\u6d4f\u89c8\u5668\u6743\u9650\u3002'
     voiceRecording.value = false
   }
 }
@@ -585,7 +583,7 @@ async function submitVoiceBlob(audioBlob, scene) {
       sessionId: sessionId.value || 'demo_session',
       scene,
       audioBlob,
-      clientHint: voiceHint.value
+      clientHint: ''
     })
     planning.value = false
     const targetPage = scene === 'qa' ? 'qa' : 'trip'
@@ -598,7 +596,7 @@ async function submitVoiceBlob(audioBlob, scene) {
       })
       messages.value.push({
         role: 'assistant',
-        text: '\u8fd9\u6761\u8bed\u97f3\u6211\u6ca1\u6709\u542c\u6e05\uff0c\u8bf7\u518d\u5f55\u4e00\u6b21\uff0c\u6216\u8005\u76f4\u63a5\u7528\u6587\u5b57\u8f93\u5165\u3002'
+        text: data.asr_error ? `?????????????${data.asr_error}` : '\u8fd9\u6761\u8bed\u97f3\u6211\u6ca1\u6709\u542c\u6e05\uff0c\u8bf7\u518d\u5f55\u4e00\u6b21\uff0c\u6216\u8005\u76f4\u63a5\u7528\u6587\u5b57\u8f93\u5165\u3002'
       })
       activePage.value = targetPage
       return
@@ -617,24 +615,7 @@ async function submitVoiceBlob(audioBlob, scene) {
 }
 
 function startHiddenSpeechRecognition() {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
-  if (!Recognition) return
-  try {
-    voiceRecognition = new Recognition()
-    voiceRecognition.lang = 'zh-CN'
-    voiceRecognition.continuous = true
-    voiceRecognition.interimResults = true
-    voiceRecognition.onresult = (event) => {
-      let text = ''
-      for (const result of event.results) {
-        text += result[0]?.transcript || ''
-      }
-      voiceHint.value = text.trim()
-    }
-    voiceRecognition.start()
-  } catch (error) {
-    voiceRecognition = null
-  }
+  return false
 }
 
 function stopHiddenSpeechRecognition() {
