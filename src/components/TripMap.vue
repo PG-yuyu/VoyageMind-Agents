@@ -174,7 +174,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import MapInfoWindow from './MapInfoWindow.vue'
 import MapMarker from './MapMarker.vue'
 import PlaceList from './PlaceList.vue'
@@ -232,6 +232,46 @@ let guideVoiceRecognition = null
 let amapApi = null
 let amapMarkers = []
 let amapPolylines = []
+
+function createSmoothTextStream(message, field = 'content') {
+  let queue = ''
+  let timer = null
+
+  const pump = () => {
+    if (!queue) {
+      timer = null
+      return
+    }
+    const step = Math.min(Math.max(Math.ceil(queue.length / 16), 1), 4)
+    message[field] += queue.slice(0, step)
+    queue = queue.slice(step)
+    timer = window.setTimeout(pump, 18)
+  }
+
+  return {
+    push(nextText) {
+      if (!nextText) return
+      queue += nextText
+      if (!timer) pump()
+    },
+    async finish() {
+      while (queue) {
+        const step = Math.min(Math.max(Math.ceil(queue.length / 10), 1), 6)
+        message[field] += queue.slice(0, step)
+        queue = queue.slice(step)
+        await new Promise((resolve) => window.setTimeout(resolve, 12))
+      }
+      message.isStreaming = false
+    },
+    fail(text) {
+      queue = ''
+      if (timer) window.clearTimeout(timer)
+      timer = null
+      message[field] = text
+      message.isStreaming = false
+    }
+  }
+}
 
 function toggleGuideVoicePlayback(event, url) {
   const audio = event.currentTarget.querySelector('audio')
@@ -577,11 +617,13 @@ function supportedGuideVoiceMimeType() {
 async function requestGuideAnswer(message, intro = false) {
   if (!guideTarget.value) return
   guideLoading.value = true
-  const assistantMessage = {
+  const assistantMessage = reactive({
     id: ++guideMessageId,
     role: 'assistant',
-    content: ''
-  }
+    content: '',
+    isStreaming: true
+  })
+  const streamDisplay = createSmoothTextStream(assistantMessage)
   guideMessages.value.push(assistantMessage)
   try {
     await streamGuideChat({
@@ -593,13 +635,14 @@ async function requestGuideAnswer(message, intro = false) {
       history: guideMessages.value
         .filter((item) => item.id !== assistantMessage.id)
         .map((item) => ({ role: item.role, content: item.content }))
-    }, (_chunk, fullText) => {
-      assistantMessage.content = fullText
+    }, (chunk) => {
+      streamDisplay.push(chunk)
     })
+    await streamDisplay.finish()
   } catch (error) {
-    assistantMessage.content = guideTargetKind.value === 'route'
+    streamDisplay.fail(guideTargetKind.value === 'route'
       ? buildRouteIntro(guideTarget.value)
-      : buildPlaceIntro(guideTarget.value)
+      : buildPlaceIntro(guideTarget.value))
   } finally {
     guideLoading.value = false
   }

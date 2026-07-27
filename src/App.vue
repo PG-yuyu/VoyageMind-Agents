@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import TripMap from './components/TripMap.vue'
 import {
   createSession,
@@ -49,6 +49,46 @@ const hasPlan = ref(false)
 const STORAGE_KEY = 'voyage-mind-member1-state'
 
 const messages = ref([])
+
+function createSmoothTextStream(message, field = 'text') {
+  let queue = ''
+  let timer = null
+
+  const pump = () => {
+    if (!queue) {
+      timer = null
+      return
+    }
+    const step = Math.min(Math.max(Math.ceil(queue.length / 16), 1), 4)
+    message[field] += queue.slice(0, step)
+    queue = queue.slice(step)
+    timer = window.setTimeout(pump, 18)
+  }
+
+  return {
+    push(nextText) {
+      if (!nextText) return
+      queue += nextText
+      if (!timer) pump()
+    },
+    async finish() {
+      while (queue) {
+        const step = Math.min(Math.max(Math.ceil(queue.length / 10), 1), 6)
+        message[field] += queue.slice(0, step)
+        queue = queue.slice(step)
+        await new Promise((resolve) => window.setTimeout(resolve, 12))
+      }
+      message.isStreaming = false
+    },
+    fail(text) {
+      queue = ''
+      if (timer) window.clearTimeout(timer)
+      timer = null
+      message[field] = text
+      message.isStreaming = false
+    }
+  }
+}
 
 function toggleVoicePlayback(event, url) {
   const audio = event.currentTarget.querySelector('audio')
@@ -494,10 +534,13 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
 
   try {
     if (targetPage === 'qa') {
-      const assistantIndex = messages.value.push({ role: 'assistant', text: '' }) - 1
-      await streamMessage(sessionId.value || `local_${Date.now()}`, text, (_chunk, fullText) => {
-        messages.value[assistantIndex].text = fullText
+      const assistantMessage = reactive({ role: 'assistant', text: '', isStreaming: true })
+      const streamDisplay = createSmoothTextStream(assistantMessage)
+      messages.value.push(assistantMessage)
+      await streamMessage(sessionId.value || `local_${Date.now()}`, text, (chunk) => {
+        streamDisplay.push(chunk)
       })
+      await streamDisplay.finish()
     } else {
       const response = await sendMessage(sessionId.value || `local_${Date.now()}`, text)
       messages.value.push({ role: 'assistant', text: response.reply })
@@ -2335,6 +2378,9 @@ async function submitAuth() {
                       @pause="stopVoicePlayback(message.audioUrl)"
                     ></audio>
                   </button>
+                  <div v-else-if="message.isStreaming && !message.text" class="typing-loader">
+                    <i></i><i></i><i></i>
+                  </div>
                   <div v-else v-html="formatMessage(message.text)"></div>
                 </div>
               </article>
