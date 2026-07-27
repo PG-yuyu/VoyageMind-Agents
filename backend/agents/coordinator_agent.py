@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any
 
 from backend.agents.adjustment_agent import AdjustmentAgent
@@ -494,20 +496,32 @@ class CoordinatorAgent:
 
             llm = DeepSeekLLM()
             agent = PlanningAgent(llm_callable=llm)
-            result = agent.plan(
-                requirements=req,
-                places=places,
-                routes=routes,
-                recommendation_context=recommendation_output.get(
-                    "recommendation_context", {}
-                ),
-                recommendation_policy=rec.get("policy_summary", {}),
-            )
+            timeout_seconds = float(os.getenv("PLANNING_AGENT_TIMEOUT_SECONDS", "8"))
+            executor = ThreadPoolExecutor(max_workers=1)
+            try:
+                future = executor.submit(
+                    agent.plan,
+                    requirements=req,
+                    places=places,
+                    routes=routes,
+                    recommendation_context=recommendation_output.get(
+                        "recommendation_context", {}
+                    ),
+                    recommendation_policy=rec.get("policy_summary", {}),
+                )
+                result = future.result(timeout=timeout_seconds)
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
             logger.info("PlanningAgent 生成行程成功: days=%d",
                         len(result.get("itinerary", {}).get("days", [])))
             itinerary = result.get("itinerary")
         except (ImportError, ValueError) as exc:
             logger.warning("PlanningAgent 不可用 (%s)，降级到规则引擎", exc)
+        except TimeoutError:
+            logger.warning(
+                "PlanningAgent exceeded %.1f seconds; falling back to rule planner",
+                timeout_seconds,
+            )
         except Exception as exc:
             logger.warning("PlanningAgent 调用失败 (%s)，降级到规则引擎", exc)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from math import atan2, cos, radians, sin, sqrt
 from typing import Protocol
 
@@ -100,7 +101,15 @@ class RouteService:
     def plan_batch(self, requests: Iterable[RouteRequest]) -> list[RouteInfo]:
         """批量规划路线。"""
 
-        return [self.plan_route(request) for request in requests]
+        request_list = list(requests)
+        if not request_list:
+            return []
+        if len(request_list) == 1:
+            return [self.plan_route(request_list[0])]
+
+        max_workers = min(8, len(request_list))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            return list(executor.map(self.plan_route, request_list))
 
     def plan_recommendation_routes(
         self,
