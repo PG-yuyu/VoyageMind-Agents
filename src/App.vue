@@ -136,6 +136,7 @@ const planningProgress = ref([
   { title: '安排每日路线', desc: '减少折返，插入午餐和晚餐时间', status: 'pending' },
   { title: '检查预算与强度', desc: '确认费用、步行距离和结束时间', status: 'pending' }
 ])
+let planningProgressTimer = null
 
 const progressStepTemplates = [
   {
@@ -444,6 +445,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopPlanningProgressFlow()
   voiceObjectUrls.forEach((url) => URL.revokeObjectURL(url))
 })
 
@@ -559,9 +561,37 @@ function setPlanningProgress(activeIndex) {
   })
 }
 
+function stopPlanningProgressFlow() {
+  if (planningProgressTimer) {
+    window.clearTimeout(planningProgressTimer)
+    planningProgressTimer = null
+  }
+}
+
 function startPlanningProgressFlow(targetPage) {
+  stopPlanningProgressFlow()
   setPlanningProgress(0)
   if (targetPage === 'qa') return
+
+  const checkpoints = [
+    { delay: 900, index: 1 },
+    { delay: 1800, index: 2 },
+    { delay: 2600, index: 3 }
+  ]
+  let cursor = 0
+
+  const scheduleNextStep = () => {
+    if (!planning.value || cursor >= checkpoints.length) return
+    const { delay, index } = checkpoints[cursor]
+    planningProgressTimer = window.setTimeout(() => {
+      if (!planning.value) return
+      setPlanningProgress(index)
+      cursor += 1
+      scheduleNextStep()
+    }, delay)
+  }
+
+  scheduleNextStep()
 }
 
 function updatePlanningProgressFromResult(response, mode = 'api') {
@@ -658,6 +688,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
     updatePlanningProgressFromResult(null, targetPage === 'qa' ? 'api' : 'demo')
     activePage.value = targetPage
   } finally {
+    stopPlanningProgressFlow()
     planning.value = false
   }
 }
