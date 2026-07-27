@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -270,6 +271,195 @@ class CoordinatorAgent:
             routes=routes,
             agent_trace=trace.model_dump(),
         )
+
+    async def run_with_progress(self, session_id: str, message: str):
+        """按真实执行节点输出规划进度事件，最后输出 ChatResponse。"""
+
+        def event(payload: dict[str, Any]) -> str:
+            return json.dumps(payload, ensure_ascii=False) + "\n"
+
+        def progress(index: int, status: str, desc: str) -> str:
+            return event(
+                {
+                    "type": "progress",
+                    "index": index,
+                    "status": status,
+                    "desc": desc,
+                }
+            )
+
+        store.ensure_session(session_id)
+        user_message = store.add_message(session_id, "user", message)
+
+        yield progress(0, "active", "正在识别意图并抽取旅行需求")
+        intent = self.intent_agent.run(message)
+        extraction = self.requirement_adapter.extract(
+            session_id=session_id,
+            message=message,
+            existing_requirements=store.requirements.get(session_id),
+        )
+        store.update_requirements(session_id, extraction.requirements)
+
+        trace = self.workflow_service.build_trace(
+            session_id=session_id,
+            intent=intent.intent,
+            has_missing_fields=extraction.need_follow_up,
+        )
+        store.agent_traces[session_id] = trace.model_dump()
+
+        if intent.intent == "travel_qa":
+            yield progress(0, "done", "已识别为旅行问答，转入知识问答流程")
+            rag_result = self.rag_service.query(question=message, top_k=5)
+            reply = self.chatbot_service.answer_travel_question(message, rag_result)
+            store.add_message(session_id, "assistant", reply)
+            response = ChatResponse(
+                message_id=user_message.message_id,
+                intent=intent,
+                reply=reply,
+                workflow_status="completed",
+                requirements=store.requirements.get(session_id),
+                itinerary=None,
+                agent_trace=trace.model_dump(),
+            )
+            yield event({"type": "final", "data": response.model_dump(mode="json")})
+            return
+
+        if extraction.need_follow_up:
+            yield progress(0, "done", "已识别需求，但仍缺少关键信息")
+            reply = extraction.follow_up_question or "还需要补充关键信息。"
+            store.add_message(session_id, "assistant", reply)
+            response = ChatResponse(
+                message_id=user_message.message_id,
+                intent=intent,
+                reply=reply,
+                workflow_status="waiting_for_user",
+                requirements=extraction.requirements,
+                itinerary=None,
+                agent_trace=trace.model_dump(),
+            )
+            yield event({"type": "final", "data": response.model_dump(mode="json")})
+            return
+
+        if intent.intent == "modify_trip":
+            yield progress(0, "done", "已识别为行程修改需求")
+            yield progress(2, "active", "正在进入行程修改流程")
+            reply = "请在「我的行程」页使用智能修改入口调整当前行程。"
+            store.add_message(session_id, "assistant", reply)
+            response = ChatResponse(
+                message_id=user_message.message_id,
+                intent=intent,
+                reply=reply,
+                workflow_status="planning",
+                requirements=extraction.requirements,
+                itinerary=None,
+                agent_trace=trace.model_dump(),
+            )
+            yield event({"type": "final", "data": response.model_dump(mode="json")})
+            return
+
+        yield progress(0, "done", "已完成意图识别和需求抽取")
+        yield progress(1, "active", "正在调用推荐模块筛选景点、餐厅和住宿")
+
+        recommendation_output = None
+        itinerary = None
+        workflow_status = "failed"
+        try:
+            recommendation_output = (
+                self.recommendation_integration_service.recommend_for_request(
+                    requirements=extraction.requirements,
+                    original_text=message,
+                    conversation_context=self._conversation_context(session_id),
+                    assumptions=extraction.assumptions,
+                )
+            )
+        except Exception as exc:
+            yield progress(1, "failed", f"推荐模块调用失败：{exc}")
+            trace = self.workflow_service.build_trace(
+                session_id=session_id,
+                intent=intent.intent,
+                has_missing_fields=False,
+                member2_recommendation_status="failed",
+                member2_route_status="failed",
+            )
+            reply = (
+                "成员二推荐模块调用失败，请检查大模型、RAG 或高德地图配置后重试："
+                f"{exc}"
+            )
+        else:
+            yield progress(1, "done", "推荐模块已返回地点候选和路线资源")
+            yield progress(2, "active", "正在根据推荐结果生成每日行程")
+            try:
+                itinerary = self._generate_itinerary(
+                    requirements=extraction.requirements,
+                    recommendation_output=recommendation_output,
+                    original_text=message,
+                )
+            except Exception as plan_exc:
+                itinerary = None
+                yield progress(2, "failed", f"行程生成失败：{plan_exc}")
+            else:
+                if itinerary:
+                    yield progress(2, "done", "已生成真实每日行程")
+                    yield progress(3, "active", "正在汇总预算、步行距离和路线强度")
+                    yield progress(3, "done", "已完成基础预算与路线强度汇总")
+                else:
+                    yield progress(2, "failed", "行程生成模块没有返回可用行程")
+
+            trace = self.workflow_service.build_trace(
+                session_id=session_id,
+                intent=intent.intent,
+                has_missing_fields=False,
+                member2_recommendation_status="success",
+                member2_route_status="success",
+            )
+            reply = self.chatbot_service.summarize_agent_reply(
+                message,
+                {
+                    "branch": "create_trip",
+                    "intent": intent.model_dump(),
+                    "requirements": extraction.model_dump(),
+                    "recommendation_result": recommendation_output[
+                        "recommendation_result"
+                    ],
+                    "itinerary": itinerary,
+                    "map_resources": recommendation_output["map_resources"],
+                    "routes": recommendation_output["routes"],
+                    "itinerary_generated": itinerary is not None,
+                    "next_tool_calls": [
+                        "itineraries.generate",
+                        "itineraries.validate",
+                    ],
+                },
+            )
+            workflow_status = "completed" if itinerary else "planning"
+
+        store.agent_traces[session_id] = trace.model_dump()
+        recommendation_result = (
+            recommendation_output["recommendation_result"]
+            if recommendation_output is not None
+            else None
+        )
+        map_resources = (
+            recommendation_output["map_resources"]
+            if recommendation_output is not None
+            else None
+        )
+        routes = recommendation_output["routes"] if recommendation_output is not None else None
+
+        store.add_message(session_id, "assistant", reply)
+        response = ChatResponse(
+            message_id=user_message.message_id,
+            intent=intent,
+            reply=reply,
+            workflow_status=workflow_status,
+            requirements=extraction.requirements,
+            itinerary=itinerary,
+            recommendation_result=recommendation_result,
+            map_resources=map_resources,
+            routes=routes,
+            agent_trace=trace.model_dump(),
+        )
+        yield event({"type": "final", "data": response.model_dump(mode="json")})
 
     def _generate_itinerary(
         self,
