@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from backend.schemas import (
     ApiResponse,
@@ -11,12 +12,22 @@ from backend.schemas import (
     WorkflowRequest,
 )
 from backend.services.rag_service import RAGService
+from backend.services.guide_service import GuideService
 from backend.services.session_store import store
 from backend.workflow.travel_workflow import TravelWorkflow
 
 router = APIRouter(prefix="/api/v1")
 workflow = TravelWorkflow()
 rag_service = RAGService()
+guide_service = GuideService(chatbot_service=workflow.chatbot_service, rag_service=rag_service)
+
+
+class GuideChatRequest(BaseModel):
+    session_id: str
+    target_type: str = "place"
+    target: dict = Field(default_factory=dict)
+    message: str = ""
+    history: list[dict] = Field(default_factory=list)
 
 
 def ok(data=None, message: str = "操作成功") -> ApiResponse:
@@ -151,3 +162,20 @@ def recommendation_evidence(body: dict) -> ApiResponse:
             evidence_types=body.get("evidence_types", []),
         )
     )
+
+
+@router.post("/guide/chat")
+def guide_chat(body: GuideChatRequest) -> ApiResponse:
+    store.ensure_session(body.session_id)
+    return ok(guide_service.answer(body.model_dump()))
+
+
+@router.post("/guide/chat/stream")
+async def guide_chat_stream(body: GuideChatRequest):
+    store.ensure_session(body.session_id)
+
+    async def generate():
+        async for chunk in guide_service.stream_answer(body.model_dump()):
+            yield chunk
+
+    return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
