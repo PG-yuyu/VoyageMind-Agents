@@ -136,7 +136,6 @@ const planningProgress = ref([
   { title: '安排每日路线', desc: '减少折返，插入午餐和晚餐时间', status: 'pending' },
   { title: '检查预算与强度', desc: '确认费用、步行距离和结束时间', status: 'pending' }
 ])
-let planningProgressTimer = null
 
 const progressStepTemplates = [
   {
@@ -164,13 +163,6 @@ const progressStepTemplates = [
     done: '已完成预算与强度检查'
   }
 ]
-
-const planningProgressPercent = computed(() => {
-  const doneCount = planningProgress.value.filter((item) => item.status === 'done').length
-  const activeIndex = planningProgress.value.findIndex((item) => item.status === 'active')
-  const progressIndex = activeIndex >= 0 ? activeIndex + 0.45 : doneCount
-  return Math.min(100, Math.max(0, (progressIndex / Math.max(planningProgress.value.length - 1, 1)) * 100))
-})
 
 const itineraryDays = ref([
   {
@@ -452,7 +444,6 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  stopPlanningProgressFlow()
   voiceObjectUrls.forEach((url) => URL.revokeObjectURL(url))
 })
 
@@ -568,37 +559,48 @@ function setPlanningProgress(activeIndex) {
   })
 }
 
-function stopPlanningProgressFlow() {
-  if (planningProgressTimer) {
-    window.clearTimeout(planningProgressTimer)
-    planningProgressTimer = null
-  }
-}
-
 function startPlanningProgressFlow(targetPage) {
-  stopPlanningProgressFlow()
   setPlanningProgress(0)
   if (targetPage === 'qa') return
-
-  const delays = [650, 1200, 1500]
-  let nextIndex = 1
-  const advance = () => {
-    if (!planning.value || nextIndex >= progressStepTemplates.length) return
-    setPlanningProgress(nextIndex)
-    const delay = delays[nextIndex] || 1500
-    nextIndex += 1
-    planningProgressTimer = window.setTimeout(advance, delay)
-  }
-  planningProgressTimer = window.setTimeout(advance, delays[0])
 }
 
-function finishPlanningProgress() {
-  stopPlanningProgressFlow()
-  planningProgress.value = progressStepTemplates.map((item, index) => ({
-    title: item.title,
-    desc: index === 2 ? routeProgressText() : item.done,
-    status: 'done'
-  }))
+function updatePlanningProgressFromResult(response, mode = 'api') {
+  const backendItinerary = response?.itinerary || response?.data?.itinerary
+  const recommendationDone = Boolean(response?.recommendation_result || recommendationResult.value)
+  const itineraryDone = Boolean(backendItinerary?.days?.length)
+  const evaluationDone = Boolean(response?.evaluation || evaluationResult.value)
+  const requirementsDone = Boolean(response?.requirements || mode === 'demo')
+
+  planningProgress.value = [
+    {
+      title: progressStepTemplates[0].title,
+      desc: requirementsDone
+        ? (mode === 'demo' ? '已使用演示解析结果补全基础需求' : progressStepTemplates[0].done)
+        : '后端还没有返回完整需求字段',
+      status: requirementsDone ? 'done' : 'active'
+    },
+    {
+      title: progressStepTemplates[1].title,
+      desc: recommendationDone
+        ? '已收到推荐模块返回的地点候选'
+        : '等待成员二推荐模块返回地点、餐厅和住宿',
+      status: recommendationDone ? 'done' : (requirementsDone ? 'active' : 'pending')
+    },
+    {
+      title: progressStepTemplates[2].title,
+      desc: itineraryDone
+        ? routeProgressText()
+        : (mode === 'demo' ? '当前为前端演示行程，等待真实行程接口替换' : '等待成员三生成完整每日行程'),
+      status: itineraryDone ? 'done' : (recommendationDone || mode === 'demo' ? 'active' : 'pending')
+    },
+    {
+      title: progressStepTemplates[3].title,
+      desc: evaluationDone
+        ? progressStepTemplates[3].done
+        : '等待预算、步行强度和开放时间校验结果',
+      status: evaluationDone ? 'done' : (itineraryDone ? 'active' : 'pending')
+    }
+  ]
 }
 
 async function submitPromptText(text, targetPage = 'trip', displayText = text, audioUrl = '', audioType = '') {
@@ -607,6 +609,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
   messages.value.push({ role: 'user', text: displayText, audioUrl, audioType })
   planning.value = true
   startPlanningProgressFlow(targetPage)
+  let planningResponse = null
 
   try {
     if (targetPage === 'qa') {
@@ -619,6 +622,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
       await streamDisplay.finish()
     } else {
       const response = await sendMessage(sessionId.value || `local_${Date.now()}`, text)
+      planningResponse = response
       messages.value.push({ role: 'assistant', text: response.reply })
       requirements.value = response.requirements || requirements.value
       applyRecommendationPayload(response)
@@ -637,7 +641,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
       hasPlan.value = true
       saveCurrentTripHistory()
     }
-    finishPlanningProgress()
+    updatePlanningProgressFromResult(targetPage === 'qa' ? null : planningResponse)
     activePage.value = targetPage
   } catch (error) {
     apiError.value = error.message
@@ -650,11 +654,10 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
       hasPlan.value = true
       saveCurrentTripHistory()
     }
-    finishPlanningProgress()
+    updatePlanningProgressFromResult(null, targetPage === 'qa' ? 'api' : 'demo')
     activePage.value = targetPage
   } finally {
     planning.value = false
-    stopPlanningProgressFlow()
   }
 }
 
@@ -2184,9 +2187,6 @@ async function submitAuth() {
             <p>系统会先理解需求，再安排地点、路线和预算。</p>
           </div>
           <div class="progress-steps">
-            <div class="progress-rail">
-              <i :style="{ width: `${planningProgressPercent}%` }"></i>
-            </div>
             <article v-for="(item, index) in planningProgress" :key="item.title" :class="['progress-step', item.status]">
               <span>{{ index + 1 }}</span>
               <div>
