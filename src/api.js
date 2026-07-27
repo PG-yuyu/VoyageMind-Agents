@@ -97,6 +97,24 @@ export async function streamGuideChat(payload, onChunk) {
   return fullText
 }
 
+export async function understandVoice({ sessionId, scene, audioBlob, clientHint = '' }) {
+  const formData = new FormData()
+  formData.append('session_id', sessionId || 'demo_session')
+  formData.append('scene', scene || 'plan')
+  formData.append('client_hint', clientHint || '')
+  formData.append('audio', audioBlob, `voice-${Date.now()}.webm`)
+
+  const response = await fetch(`${API_BASE}/voice/understand`, {
+    method: 'POST',
+    body: formData
+  })
+  const payload = await response.json()
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.message || payload.detail || '语音理解失败')
+  }
+  return Object.prototype.hasOwnProperty.call(payload, 'data') ? payload.data : payload
+}
+
 const MAP_RESOURCE_EXTRAS = {
   place_001: {
     price: 0,

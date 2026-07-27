@@ -462,7 +462,7 @@ button:disabled {
 .chat-composer {
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px;
+  grid-template-columns: minmax(0, 1fr) 72px 96px;
   gap: 10px;
   padding: 10px;
   border: 1px solid #d9e3ee;
@@ -569,7 +569,7 @@ p {
 
 .search-box {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 118px;
+  grid-template-columns: minmax(0, 1fr) 76px 118px;
   gap: 12px;
   max-width: 720px;
   margin-top: 24px;
@@ -602,6 +602,33 @@ textarea {
   color: #fff;
   font-weight: 900;
   box-shadow: 0 16px 32px rgba(23, 32, 51, 0.16);
+}
+
+.search-box .voice-button,
+.chat-composer .voice-button {
+  border: 1px solid #d9e3ee;
+  background: #f8fbff;
+  color: #4f65ff;
+  box-shadow: none;
+}
+
+.search-box .voice-button.recording,
+.chat-composer .voice-button.recording {
+  border-color: #ff6b7a;
+  background: #fff1f3;
+  color: #d9364f;
+  box-shadow: 0 12px 24px rgba(217, 54, 79, 0.12);
+}
+
+.voice-status {
+  margin: 9px 0 0;
+  color: #4f65ff;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.voice-status.error {
+  color: #d9364f;
 }
 
 .quick-prompts {

@@ -9,7 +9,8 @@ import {
   loginAccount,
   registerAccount,
   sendMessage,
-  streamMessage
+  streamMessage,
+  understandVoice
 } from './api'
 import { modifyItinerary } from './api/adjustmentApi'
 import { evaluateItinerary } from './api/itineraryApi'
@@ -33,6 +34,13 @@ const pages = [
 const activePage = ref('plan')
 const prompt = ref('')
 const planning = ref(false)
+const voiceRecording = ref(false)
+const voiceScene = ref('')
+const voiceError = ref('')
+const voiceHint = ref('')
+let voiceRecorder = null
+let voiceChunks = []
+let voiceRecognition = null
 const sessionId = ref('')
 const apiError = ref('')
 const hasPlan = ref(false)
@@ -442,9 +450,14 @@ async function loadMapResources() {
 async function sendPrompt(targetPage = 'trip') {
   const text = prompt.value.trim()
   if (!text || planning.value) return
-
-  messages.value.push({ role: 'user', text })
   prompt.value = ''
+  await submitPromptText(text, targetPage)
+}
+
+async function submitPromptText(text, targetPage = 'trip', displayText = text) {
+  if (!text || planning.value) return
+
+  messages.value.push({ role: 'user', text: displayText })
   planning.value = true
   planningProgress.value = planningProgress.value.map((item, index) => ({
     ...item,
@@ -500,6 +513,115 @@ async function sendPrompt(targetPage = 'trip') {
   } finally {
     planning.value = false
   }
+}
+
+async function toggleVoiceInput(scene = 'plan') {
+  if (voiceRecording.value) {
+    stopVoiceInput()
+    return
+  }
+  await startVoiceInput(scene)
+}
+
+async function startVoiceInput(scene = 'plan') {
+  if (planning.value || voiceRecording.value) return
+  voiceError.value = ''
+  voiceHint.value = ''
+  voiceScene.value = scene
+
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    voiceError.value = '当前浏览器不支持录音，请使用 Chrome 或 Edge。'
+    return
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    voiceChunks = []
+    const mimeType = supportedVoiceMimeType()
+    voiceRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+    voiceRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        voiceChunks.push(event.data)
+      }
+    }
+    voiceRecorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop())
+      stopHiddenSpeechRecognition()
+      const audioBlob = new Blob(voiceChunks, { type: voiceRecorder?.mimeType || 'audio/webm' })
+      voiceRecorder = null
+      voiceRecording.value = false
+      await submitVoiceBlob(audioBlob, scene)
+    }
+    startHiddenSpeechRecognition()
+    voiceRecorder.start()
+    voiceRecording.value = true
+  } catch (error) {
+    voiceError.value = '无法开启麦克风，请检查浏览器权限。'
+    voiceRecording.value = false
+  }
+}
+
+function stopVoiceInput() {
+  if (voiceRecorder && voiceRecorder.state !== 'inactive') {
+    voiceRecorder.stop()
+  }
+}
+
+async function submitVoiceBlob(audioBlob, scene) {
+  if (!audioBlob.size) {
+    voiceError.value = '没有录到声音，请重新录制。'
+    return
+  }
+  planning.value = true
+  try {
+    const data = await understandVoice({
+      sessionId: sessionId.value || 'demo_session',
+      scene,
+      audioBlob,
+      clientHint: voiceHint.value
+    })
+    planning.value = false
+    const targetPage = scene === 'qa' ? 'qa' : 'trip'
+    await submitPromptText(data.understood_text, targetPage, data.display_text || '已发送一条语音输入')
+  } catch (error) {
+    planning.value = false
+    voiceError.value = error.message || '语音理解失败'
+  }
+}
+
+function startHiddenSpeechRecognition() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!Recognition) return
+  try {
+    voiceRecognition = new Recognition()
+    voiceRecognition.lang = 'zh-CN'
+    voiceRecognition.continuous = true
+    voiceRecognition.interimResults = true
+    voiceRecognition.onresult = (event) => {
+      let text = ''
+      for (const result of event.results) {
+        text += result[0]?.transcript || ''
+      }
+      voiceHint.value = text.trim()
+    }
+    voiceRecognition.start()
+  } catch (error) {
+    voiceRecognition = null
+  }
+}
+
+function stopHiddenSpeechRecognition() {
+  try {
+    voiceRecognition?.stop?.()
+  } catch (error) {
+    // 浏览器可能已经自动停止，忽略即可。
+  }
+  voiceRecognition = null
+}
+
+function supportedVoiceMimeType() {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+  return candidates.find((type) => MediaRecorder.isTypeSupported?.(type)) || ''
 }
 
 function applyRecommendationPayload(response) {
@@ -1791,8 +1913,18 @@ async function submitAuth() {
             </p>
             <div class="search-box">
               <textarea v-model="prompt" placeholder="例如：帮我规划天津两日游，预算1800元，喜欢近代建筑和海河夜景，步行不要超过7公里。" @keydown.ctrl.enter="sendPrompt('trip')"></textarea>
+              <button
+                class="voice-button"
+                :class="{ recording: voiceRecording && voiceScene === 'plan' }"
+                :disabled="planning && !(voiceRecording && voiceScene === 'plan')"
+                @click="toggleVoiceInput('plan')"
+              >
+                {{ voiceRecording && voiceScene === 'plan' ? '停止' : '语音' }}
+              </button>
               <button :disabled="planning" @click="sendPrompt('trip')">{{ planning ? '规划中' : '生成行程' }}</button>
             </div>
+            <p v-if="voiceRecording && voiceScene === 'plan'" class="voice-status">正在录音，说完后点“停止”。</p>
+            <p v-else-if="voiceError" class="voice-status error">{{ voiceError }}</p>
             <div class="quick-prompts">
               <button @click="fillPrompt('帮我规划天津两日游，预算1800元，喜欢近代建筑和海河夜景。')">天津经典两日</button>
               <button @click="fillPrompt('把第二天下午改成室内景点，并减少步行。')">减少步行</button>
@@ -2158,8 +2290,18 @@ async function submitAuth() {
 
             <div class="chat-composer">
               <textarea v-model="prompt" placeholder="问问天津旅行，比如：五大道下午去会不会太赶？" @keydown.ctrl.enter="sendPrompt('qa')"></textarea>
+              <button
+                class="voice-button"
+                :class="{ recording: voiceRecording && voiceScene === 'qa' }"
+                :disabled="planning && !(voiceRecording && voiceScene === 'qa')"
+                @click="toggleVoiceInput('qa')"
+              >
+                {{ voiceRecording && voiceScene === 'qa' ? '停止' : '语音' }}
+              </button>
               <button :disabled="planning" @click="sendPrompt('qa')">{{ planning ? '查询中' : '发送' }}</button>
             </div>
+            <p v-if="voiceRecording && voiceScene === 'qa'" class="voice-status">正在录音，说完后点“停止”。</p>
+            <p v-else-if="voiceError" class="voice-status error">{{ voiceError }}</p>
           </section>
 
           <aside class="chat-right-panel">
