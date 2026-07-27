@@ -35,7 +35,7 @@ async def understand_voice(
     """
 
     raw_hint = client_hint.strip()
-    understood_text = _understand_with_chatbot(raw_hint, scene) if raw_hint else _fallback_text(scene)
+    understood_text = _understand_with_chatbot(raw_hint, scene) if raw_hint else ""
     return ok(
         {
             "session_id": session_id,
@@ -44,6 +44,7 @@ async def understand_voice(
             "audio_content_type": audio.content_type,
             "understood_text": understood_text,
             "display_text": _display_text(scene),
+            "recognized": bool(understood_text),
             "recognition_mode": "browser_hint_plus_chatbot" if raw_hint else "fallback",
         }
     )

@@ -574,10 +574,12 @@ function stopVoiceInput() {
 
 async function submitVoiceBlob(audioBlob, scene) {
   if (!audioBlob.size) {
-    voiceError.value = '?????????????'
+    voiceError.value = '\u6ca1\u6709\u5f55\u5230\u58f0\u97f3\uff0c\u8bf7\u91cd\u65b0\u5f55\u5236\u3002'
     return
   }
   planning.value = true
+  const audioUrl = URL.createObjectURL(audioBlob)
+  voiceObjectUrls.push(audioUrl)
   try {
     const data = await understandVoice({
       sessionId: sessionId.value || 'demo_session',
@@ -587,18 +589,30 @@ async function submitVoiceBlob(audioBlob, scene) {
     })
     planning.value = false
     const targetPage = scene === 'qa' ? 'qa' : 'trip'
-    const audioUrl = URL.createObjectURL(audioBlob)
-    voiceObjectUrls.push(audioUrl)
+    if (!data.understood_text) {
+      messages.value.push({
+        role: 'user',
+        text: data.display_text || '\u5df2\u53d1\u9001\u4e00\u6761\u8bed\u97f3\u8f93\u5165',
+        audioUrl,
+        audioType: audioBlob.type || 'audio/webm'
+      })
+      messages.value.push({
+        role: 'assistant',
+        text: '\u8fd9\u6761\u8bed\u97f3\u6211\u6ca1\u6709\u542c\u6e05\uff0c\u8bf7\u518d\u5f55\u4e00\u6b21\uff0c\u6216\u8005\u76f4\u63a5\u7528\u6587\u5b57\u8f93\u5165\u3002'
+      })
+      activePage.value = targetPage
+      return
+    }
     await submitPromptText(
       data.understood_text,
       targetPage,
-      data.display_text || '?????????',
+      data.display_text || '\u5df2\u53d1\u9001\u4e00\u6761\u8bed\u97f3\u8f93\u5165',
       audioUrl,
       audioBlob.type || 'audio/webm'
     )
   } catch (error) {
     planning.value = false
-    voiceError.value = error.message || '??????'
+    voiceError.value = error.message || '\u8bed\u97f3\u7406\u89e3\u5931\u8d25'
   }
 }
 
