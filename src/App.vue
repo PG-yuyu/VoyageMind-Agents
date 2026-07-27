@@ -38,6 +38,7 @@ const voiceRecording = ref(false)
 const voiceScene = ref('')
 const voiceError = ref('')
 const voiceHint = ref('')
+const playingVoiceUrl = ref('')
 let voiceRecorder = null
 let voiceChunks = []
 let voiceRecognition = null
@@ -48,6 +49,28 @@ const hasPlan = ref(false)
 const STORAGE_KEY = 'voyage-mind-member1-state'
 
 const messages = ref([])
+
+function toggleVoicePlayback(event, url) {
+  const audio = event.currentTarget.querySelector('audio')
+  if (!audio) return
+  if (playingVoiceUrl.value === url && !audio.paused) {
+    audio.pause()
+    playingVoiceUrl.value = ''
+    return
+  }
+  document.querySelectorAll('audio[data-voice-player="true"]').forEach((item) => {
+    if (item !== audio) item.pause()
+  })
+  audio.currentTime = 0
+  audio.play()
+  playingVoiceUrl.value = url
+}
+
+function stopVoicePlayback(url) {
+  if (playingVoiceUrl.value === url) {
+    playingVoiceUrl.value = ''
+  }
+}
 
 const requirements = ref({
   city: '天津',
@@ -2310,10 +2333,25 @@ async function submitAuth() {
               <article v-for="(message, index) in messages" :key="index" class="chat-row" :class="message.role">
                 <div class="avatar">{{ message.role === 'user' ? '你' : 'AI' }}</div>
                 <div class="message-content">
-                  <div v-if="message.audioUrl" class="voice-playback">
-                    <span>{{ message.text || '已发送一条语音输入' }}</span>
-                    <audio :src="message.audioUrl" :type="message.audioType || 'audio/webm'" controls preload="metadata"></audio>
-                  </div>
+                  <button
+                    v-if="message.audioUrl"
+                    class="voice-bubble"
+                    :class="{ playing: playingVoiceUrl === message.audioUrl }"
+                    @click="toggleVoicePlayback($event, message.audioUrl)"
+                  >
+                    <span class="voice-bubble__icon"></span>
+                    <span class="voice-bubble__waves"><i></i><i></i><i></i></span>
+                    <span class="voice-bubble__label">{{ message.text || '语音' }}</span>
+                    <span class="voice-bubble__time">语音</span>
+                    <audio
+                      :src="message.audioUrl"
+                      :type="message.audioType || 'audio/webm'"
+                      preload="metadata"
+                      data-voice-player="true"
+                      @ended="stopVoicePlayback(message.audioUrl)"
+                      @pause="stopVoicePlayback(message.audioUrl)"
+                    ></audio>
+                  </button>
                   <div v-else v-html="formatMessage(message.text)"></div>
                 </div>
               </article>
