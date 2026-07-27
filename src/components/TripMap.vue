@@ -3,10 +3,20 @@
     <header class="trip-map__head">
       <div>
         <p class="eyebrow">Route Map</p>
-        <h2>推荐地点地图</h2>
-        <span>地点、路线和坐标校验会集中展示在这里。</span>
+        <h2>路线地图</h2>
+        <span>{{ mapSubtitle }}</span>
       </div>
       <div class="trip-map__actions">
+        <div v-if="dayTabs.length" class="map-day-switch" aria-label="切换行程日期">
+          <button
+            v-for="day in dayTabs"
+            :key="day.day"
+            :class="{ active: activeMapDay === day.day }"
+            @click="selectMapDay(day.day)"
+          >
+            第 {{ day.day }} 天
+          </button>
+        </div>
         <div class="map-mode-switch" role="tablist" aria-label="地图信息模式">
           <button :class="{ active: viewMode === 'info' }" @click="viewMode = 'info'">基本信息</button>
           <button :class="{ active: viewMode === 'guide' }" @click="openGuideMode()">AI 导游</button>
@@ -200,13 +210,21 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  itineraryDays: {
+    type: Array,
+    default: () => []
+  },
+  activeDay: {
+    type: Number,
+    default: 1
+  },
   sessionId: {
     type: String,
     default: 'demo_session'
   }
 })
 
-const emit = defineEmits(['select', 'retry'])
+const emit = defineEmits(['select', 'retry', 'change-day'])
 const mapStore = createMapStore(props.resources)
 const realMapElement = ref(null)
 const realMapReady = ref(false)
@@ -232,6 +250,85 @@ let guideVoiceRecognition = null
 let amapApi = null
 let amapMarkers = []
 let amapPolylines = []
+
+const dayTabs = computed(() => {
+  return (props.itineraryDays || [])
+    .filter((day) => Array.isArray(day.items) && day.items.length)
+    .map((day, index) => ({
+      day: Number(day.day) || index + 1,
+      label: `第 ${Number(day.day) || index + 1} 天`
+    }))
+})
+
+const activeMapDay = computed(() => {
+  if (!dayTabs.value.length) return 1
+  return dayTabs.value.some((day) => day.day === props.activeDay)
+    ? props.activeDay
+    : dayTabs.value[0].day
+})
+
+const mapSubtitle = computed(() => {
+  return dayTabs.value.length
+    ? `当前展示第 ${activeMapDay.value} 天的地点和路线`
+    : '生成行程后会按每天展示地点和路线'
+})
+
+const activeDayPlaceIds = computed(() => {
+  return getUniqueDayPlaceIds(activeMapDay.value)
+})
+
+const activeDayRoutePairs = computed(() => {
+  const pairs = new Set()
+  for (let index = 0; index < activeDayPlaceIds.value.length - 1; index += 1) {
+    const origin = activeDayPlaceIds.value[index]
+    const destination = activeDayPlaceIds.value[index + 1]
+    if (origin && destination && origin !== destination) {
+      pairs.add(`${origin}->${destination}`)
+      pairs.add(`${destination}->${origin}`)
+    }
+  }
+  return pairs
+})
+
+function getUniqueDayPlaceIds(dayNumber) {
+  const day = (props.itineraryDays || []).find((item) => Number(item.day) === Number(dayNumber))
+  const items = Array.isArray(day?.items) ? day.items : []
+  const ids = []
+  const seen = new Set()
+  items.forEach((item) => {
+    const placeId = item?.place_id
+    if (!placeId || seen.has(placeId)) return
+    seen.add(placeId)
+    ids.push(placeId)
+  })
+  return ids
+}
+
+const visibleResources = computed(() => {
+  if (!activeDayPlaceIds.value.length) return props.resources
+  const idSet = new Set(activeDayPlaceIds.value)
+  const unique = new Map()
+  props.resources.forEach((resource) => {
+    if (idSet.has(resource.place_id) && !unique.has(resource.place_id)) {
+      unique.set(resource.place_id, resource)
+    }
+  })
+  return activeDayPlaceIds.value.map((id) => unique.get(id)).filter(Boolean)
+})
+
+const visibleRoutes = computed(() => {
+  if (!activeDayPlaceIds.value.length) return props.routes
+  const idSet = new Set(activeDayPlaceIds.value)
+  const dayRoutes = props.routes.filter((route) => (
+    idSet.has(route?.origin_place_id) &&
+    idSet.has(route?.destination_place_id) &&
+    route.origin_place_id !== route.destination_place_id
+  ))
+  const orderedRoutes = dayRoutes.filter((route) => (
+    activeDayRoutePairs.value.has(`${route.origin_place_id}->${route.destination_place_id}`)
+  ))
+  return orderedRoutes.length ? orderedRoutes : dayRoutes
+})
 
 function createSmoothTextStream(message, field = 'content') {
   let queue = ''
@@ -296,7 +393,7 @@ function stopGuideVoicePlayback(url) {
 }
 
 watch(
-  () => props.resources,
+  visibleResources,
   (resources) => mapStore.setResources(resources),
   { immediate: true, deep: true }
 )
@@ -348,8 +445,8 @@ const selectedResource = computed(() => {
   return resources.value.find((resource) => resource.place_id === selectedPlaceId.value) || resources.value[0] || null
 })
 
-const amapRoutes = computed(() => props.routes.filter(isVerifiedAmapRoute))
-const nonAmapRoutes = computed(() => props.routes.filter((route) => !isVerifiedAmapRoute(route)))
+const amapRoutes = computed(() => visibleRoutes.value.filter(isVerifiedAmapRoute))
+const nonAmapRoutes = computed(() => visibleRoutes.value.filter((route) => !isVerifiedAmapRoute(route)))
 
 const mockRouteLines = computed(() => {
   return amapRoutes.value
@@ -449,6 +546,16 @@ watch(viewMode, (mode) => {
 
 function openGuideMode() {
   viewMode.value = 'guide'
+}
+
+function selectMapDay(day) {
+  emit('change-day', day)
+  hasManualSelection.value = false
+  const firstPlaceId = getUniqueDayPlaceIds(day)[0]
+  const firstResource = props.resources.find((resource) => resource.place_id === firstPlaceId)
+  if (firstResource) {
+    mapStore.selectPlace(firstResource.place_id)
+  }
 }
 
 function selectResource(resource) {
@@ -666,7 +773,7 @@ function routeTitle(route) {
 }
 
 function resourceNameById(placeId) {
-  return resources.value.find((resource) => resource.place_id === placeId)?.name
+  return props.resources.find((resource) => resource.place_id === placeId)?.name
 }
 
 async function initializeRealMap() {
@@ -927,6 +1034,35 @@ function clamp(value, min, max) {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.map-day-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid #dce7f2;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(31, 41, 55, 0.06);
+}
+
+.map-day-switch button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #647286;
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.map-day-switch button.active {
+  background: linear-gradient(135deg, #4f65ff, #14b8a6);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(79, 101, 255, 0.2);
 }
 
 .map-mode-switch {
