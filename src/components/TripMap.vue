@@ -370,7 +370,7 @@ function setGuideTarget(target, kind) {
   guideTargetKind.value = kind
   guideInput.value = ''
   guideMessages.value = []
-  requestGuideAnswer('请先用导游身份介绍这里。')
+  requestGuideAnswer('请先用导游身份介绍这里。', true)
 }
 
 async function sendGuideQuestion() {
@@ -385,7 +385,7 @@ async function sendGuideQuestion() {
   await requestGuideAnswer(question)
 }
 
-async function requestGuideAnswer(message) {
+async function requestGuideAnswer(message, intro = false) {
   if (!guideTarget.value) return
   guideLoading.value = true
   const assistantMessage = {
@@ -400,6 +400,7 @@ async function requestGuideAnswer(message) {
       target_type: guideTargetKind.value,
       target: guideTarget.value,
       message,
+      intro,
       history: guideMessages.value
         .filter((item) => item.id !== assistantMessage.id)
         .map((item) => ({ role: item.role, content: item.content }))
@@ -1049,6 +1050,7 @@ function clamp(value, min, max) {
   color: #253248;
   font-size: 14px;
   line-height: 1.65;
+  white-space: pre-wrap;
 }
 
 .guide-thinking {

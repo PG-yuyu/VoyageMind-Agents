@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -32,8 +33,16 @@ class GuideService:
         history = payload.get("history") or []
 
         context = self._build_context(target_type, target)
-        rag_result = self._query_rag(message, context)
-        answer = self._chat(message, context, history, rag_result)
+        is_intro = payload.get("intro") is True or message in {
+            "",
+            "请先用导游身份介绍这里。",
+        }
+        rag_result = {} if is_intro else self._query_rag(message, context)
+        answer = (
+            self._intro_answer(context)
+            if is_intro
+            else self._format_answer(self._chat(message, context, history, rag_result))
+        )
         return {
             "answer": answer,
             "target_type": target_type,
@@ -127,7 +136,8 @@ class GuideService:
             "你要像现场导游一样讲解当前地图上被点击的景点、餐厅、酒店或路线。"
             "回答要具体、自然、可执行，优先结合传入地点数据、路线数据和 RAG 资料。"
             "如果资料不足，可以基于天津旅行常识回答，但不要伪造具体票价、开放时间或官方规则。"
-            "输出使用简洁 Markdown：先一小段导游式介绍，再用 2-4 个要点回答用户问题。"
+            "输出必须适合聊天气泡展示：不要 Markdown 粗体符号，不要表格，不要标题层级。"
+            "先用一小段直接回答，再换行列出 2-4 条短要点，每条以“· ”开头。"
         )
         user_payload = {
             "用户问题": message or "请先介绍这里",
@@ -142,6 +152,58 @@ class GuideService:
             )
         except Exception:
             return self._fallback_answer(message, context)
+
+    def _intro_answer(self, context: dict[str, Any]) -> str:
+        if context["kind"] == "route":
+            return self._route_intro(context)
+        return self._place_intro(context)
+
+    def _place_intro(self, context: dict[str, Any]) -> str:
+        title = context["title"]
+        type_label = self._type_label(context.get("place_type"))
+        description = context.get("description") or "这里是本次天津行程中的一个推荐地点。"
+        reason = context.get("recommend_reason")
+        area = context.get("area")
+        address = context.get("address")
+        open_time = context.get("open_time") or "开放时间建议出发前再确认"
+        price = context.get("price")
+        price_text = f"参考费用约 {price} 元" if price is not None else "费用以现场或官方信息为准"
+        tags = "、".join((context.get("tags") or [])[:4])
+        location = address or (f"位于天津{area}" if area else "位于天津")
+
+        lines = [
+            f"欢迎来到{title}。这是本次路线中的{type_label}节点，{description}",
+            "",
+            f"· 位置：{location}。",
+            f"· 时间：{open_time}。",
+            f"· 预算：{price_text}。",
+        ]
+        if tags:
+            lines.append(f"· 看点：{tags}。")
+        if reason:
+            lines.append(f"· 安排原因：{reason}")
+        lines.append("")
+        lines.append("你可以继续问我这里适合停留多久、怎么拍照、附近吃什么，或者怎么衔接下一站。")
+        return "\n".join(lines)
+
+    def _route_intro(self, context: dict[str, Any]) -> str:
+        title = context["title"]
+        mode = self._mode_label(context.get("travel_mode"))
+        distance = self._distance_text(context.get("distance_m"))
+        duration = self._duration_text(context.get("duration_min"))
+        route_meta = "，".join([item for item in (mode, distance, duration) if item])
+        if route_meta:
+            route_meta = f"这段路预计{route_meta}。"
+        else:
+            route_meta = "这段路适合用来判断两站之间的衔接是否顺。"
+
+        return (
+            f"现在看的是 {title} 这段路线。{route_meta}\n\n"
+            "· 路线作用：连接当前行程中的两个节点，重点看是否绕路、是否太累。\n"
+            "· 体验建议：中间预留 10-15 分钟缓冲，方便拍照、补水或临时排队。\n"
+            "· 调整方向：如果下雨、老人同行或体力下降，可以优先保留目的地，把中途步行压缩。\n\n"
+            "你可以继续问我怎么走更轻松、沿途有没有看点，或者是否建议改成打车。"
+        )
 
     def _fallback_answer(self, message: str, context: dict[str, Any]) -> str:
         if context["kind"] == "route":
@@ -159,11 +221,48 @@ class GuideService:
         price_text = f"参考费用约 {price} 元" if price is not None else "费用以现场或官方信息为准"
         return (
             f"{context['title']} 是当前地图上的{self._type_label(context.get('place_type'))}，{description}\n\n"
-            f"- 适合看点：{tags or '结合当前行程偏好安排'}。\n"
-            f"- 时间建议：{open_time}，游览前最好再核对官方公告。\n"
-            f"- 预算提醒：{price_text}。\n"
-            "- 你可以继续问我适合停留多久、附近吃什么、怎么和下一站衔接。"
+            f"· 适合看点：{tags or '结合当前行程偏好安排'}。\n"
+            f"· 时间建议：{open_time}，游览前最好再核对官方公告。\n"
+            f"· 预算提醒：{price_text}。\n"
+            "· 你可以继续问我适合停留多久、附近吃什么、怎么和下一站衔接。"
         )
+
+    @staticmethod
+    def _format_answer(answer: str) -> str:
+        text = (answer or "").strip()
+        text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+        text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
+        text = re.sub(r"\n?\s*[-*]\s+", "\n· ", text)
+        text = re.sub(r"\s+(\d+[.、])\s+", r"\n\1 ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
+    @staticmethod
+    def _distance_text(value: Any) -> str:
+        try:
+            distance = float(value)
+        except (TypeError, ValueError):
+            return ""
+        if distance >= 1000:
+            return f"约 {distance / 1000:.1f} 公里"
+        return f"约 {int(distance)} 米"
+
+    @staticmethod
+    def _duration_text(value: Any) -> str:
+        try:
+            duration = float(value)
+        except (TypeError, ValueError):
+            return ""
+        return f"约 {int(round(duration))} 分钟"
+
+    @staticmethod
+    def _mode_label(value: str | None) -> str:
+        return {
+            "walking": "步行",
+            "transit": "公共交通",
+            "driving": "打车/驾车",
+            "bicycling": "骑行",
+        }.get(value or "", value or "")
 
     def _load_place_index(self) -> dict[str, dict[str, Any]]:
         root = Path(__file__).resolve().parents[2]
