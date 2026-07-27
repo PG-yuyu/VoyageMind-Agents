@@ -7,10 +7,10 @@
         <span>地点、路线和坐标校验会集中展示在这里。</span>
       </div>
       <div class="trip-map__actions">
-        <span class="status-pill">{{ realMapReady ? '高德地图已接入' : '轻量地图模式' }}</span>
-        <button class="ghost-button" :disabled="loading" @click="$emit('retry')">
-          {{ loading ? '加载中' : '刷新地点' }}
-        </button>
+        <div class="map-mode-switch" role="tablist" aria-label="地图信息模式">
+          <button :class="{ active: viewMode === 'info' }" @click="viewMode = 'info'">基本信息</button>
+          <button :class="{ active: viewMode === 'guide' }" @click="openGuideMode()">AI 导游</button>
+        </div>
       </div>
     </header>
 
@@ -28,6 +28,8 @@
               v-for="route in mockRouteLines"
               :key="route.key"
               :points="route.points"
+              :clickable="viewMode === 'guide'"
+              @select="selectRoute(route.source)"
             />
             <MapMarker
               v-for="marker in markerPositions"
@@ -39,7 +41,7 @@
               @select="selectResource"
             />
             <MapInfoWindow
-              v-if="hasManualSelection && selectedMarker"
+              v-if="viewMode === 'info' && hasManualSelection && selectedMarker"
               :resource="selectedMarker.resource"
               :x="selectedMarker.x"
               :y="selectedMarker.y"
@@ -53,39 +55,86 @@
       </section>
 
       <aside class="trip-map__side">
-        <section v-if="selectedResource" class="selected-place">
-          <div>
-            <span>{{ placeTypeLabel(selectedResource) }}</span>
-            <strong>{{ selectedResource.name }}</strong>
-            <p>{{ selectedResource.short_description || selectedResource.recommend_reason || '暂无地点摘要' }}</p>
+        <template v-if="viewMode === 'info'">
+          <section v-if="selectedResource" class="selected-place">
+            <div>
+              <span>{{ placeTypeLabel(selectedResource) }}</span>
+              <strong>{{ selectedResource.name }}</strong>
+              <p>{{ selectedResource.short_description || selectedResource.recommend_reason || '暂无地点摘要' }}</p>
+            </div>
+            <dl>
+              <div>
+                <dt>预算</dt>
+                <dd>{{ selectedResource.price !== null && selectedResource.price !== undefined ? `约 ${selectedResource.price} 元` : '待定' }}</dd>
+              </div>
+              <div>
+                <dt>时间</dt>
+                <dd>{{ selectedResource.open_time || '全天' }}</dd>
+              </div>
+              <div>
+                <dt>坐标</dt>
+                <dd>{{ selectedResource.verified === false ? '待确认' : '已校验' }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="map-summary">
+            <article><span>地点</span><strong>{{ validResources.length }}</strong></article>
+            <article><span>路线</span><strong>{{ amapRoutes.length }}</strong></article>
+            <article><span>待确认</span><strong>{{ invalidResources.length }}</strong></article>
+          </section>
+
+          <PlaceList
+            :resources="resources"
+            :selected-place-id="selectedPlaceId"
+            @select="selectResource"
+          />
+
+          <button class="map-refresh-button" :disabled="loading" @click="$emit('retry')">
+            {{ loading ? '正在刷新地点' : '刷新地点数据' }}
+          </button>
+        </template>
+
+        <section v-else class="guide-panel">
+          <header class="guide-panel__head">
+            <div>
+              <span>AI Tour Guide</span>
+              <strong>{{ guideTitle }}</strong>
+            </div>
+            <small>{{ guideTargetType }}</small>
+          </header>
+
+          <div class="guide-panel__messages">
+            <article
+              v-for="message in guideMessages"
+              :key="message.id"
+              class="guide-message"
+              :class="message.role"
+            >
+              <span>{{ message.role === 'user' ? '你' : 'AI 导游' }}</span>
+              <p>{{ message.content }}</p>
+            </article>
           </div>
-          <dl>
-            <div>
-              <dt>预算</dt>
-              <dd>{{ selectedResource.price !== null && selectedResource.price !== undefined ? `约 ${selectedResource.price} 元` : '待定' }}</dd>
-            </div>
-            <div>
-              <dt>时间</dt>
-              <dd>{{ selectedResource.open_time || '全天' }}</dd>
-            </div>
-            <div>
-              <dt>坐标</dt>
-              <dd>{{ selectedResource.verified === false ? '待确认' : '已校验' }}</dd>
-            </div>
-          </dl>
-        </section>
 
-        <section class="map-summary">
-          <article><span>地点</span><strong>{{ validResources.length }}</strong></article>
-          <article><span>路线</span><strong>{{ amapRoutes.length }}</strong></article>
-          <article><span>待确认</span><strong>{{ invalidResources.length }}</strong></article>
-        </section>
+          <div class="guide-panel__quick">
+            <button
+              v-for="question in guideQuickQuestions"
+              :key="question"
+              @click="guideInput = question"
+            >
+              {{ question }}
+            </button>
+          </div>
 
-        <PlaceList
-          :resources="resources"
-          :selected-place-id="selectedPlaceId"
-          @select="selectResource"
-        />
+          <form class="guide-panel__input" @submit.prevent="sendGuideQuestion">
+            <textarea
+              v-model="guideInput"
+              rows="3"
+              placeholder="针对当前景点或路线提问，比如：这里适合拍照吗？附近有什么吃的？"
+            ></textarea>
+            <button type="submit">提问</button>
+          </form>
+        </section>
       </aside>
     </div>
   </section>
@@ -127,6 +176,12 @@ const realMapError = ref('')
 const amapInstance = ref(null)
 const amapInfoWindow = ref(null)
 const hasManualSelection = ref(false)
+const viewMode = ref('info')
+const guideTarget = ref(null)
+const guideTargetKind = ref('place')
+const guideInput = ref('')
+const guideMessages = ref([])
+let guideMessageId = 0
 let amapApi = null
 let amapMarkers = []
 let amapPolylines = []
@@ -191,6 +246,7 @@ const mockRouteLines = computed(() => {
   return amapRoutes.value
     .map((route, index) => ({
       key: `${route.origin_place_id}-${route.destination_place_id}-${index}`,
+      source: route,
       points: route.polyline
         .map((point) => positionForCoordinate(point))
         .filter(Boolean)
@@ -210,6 +266,24 @@ const routeStatusNotice = computed(() => {
     return `已渲染 ${amapRoutes.value.length} 条高德实际路线${skippedText}。`
   }
   return '当前路线未通过高德地图验证，不展示为真实路线。'
+})
+
+const guideTitle = computed(() => {
+  if (!guideTarget.value) return '点击地图上的地点或路线'
+  if (guideTargetKind.value === 'route') return routeTitle(guideTarget.value)
+  return guideTarget.value.name
+})
+
+const guideTargetType = computed(() => {
+  if (!guideTarget.value) return '等待选择'
+  return guideTargetKind.value === 'route' ? '路线讲解' : placeTypeLabel(guideTarget.value)
+})
+
+const guideQuickQuestions = computed(() => {
+  if (guideTargetKind.value === 'route') {
+    return ['这段路怎么走更省力？', '沿途有什么值得停留？', '如果下雨怎么改？']
+  }
+  return ['这里最值得看什么？', '适合停留多久？', '附近有什么餐饮？']
 })
 
 onMounted(() => {
@@ -253,11 +327,80 @@ watch(
   }
 )
 
+watch(viewMode, (mode) => {
+  if (mode === 'guide') {
+    amapInfoWindow.value?.close?.()
+    if (!guideTarget.value && selectedResource.value) {
+      setGuideTarget(selectedResource.value, 'place')
+    }
+  }
+})
+
+function openGuideMode() {
+  viewMode.value = 'guide'
+}
+
 function selectResource(resource) {
   hasManualSelection.value = true
   mapStore.selectPlace(resource.place_id)
   focusAmapResource(resource)
+  if (viewMode.value === 'guide') {
+    setGuideTarget(resource, 'place')
+  }
   emit('select', resource)
+}
+
+function selectRoute(route) {
+  viewMode.value = 'guide'
+  setGuideTarget(route, 'route')
+}
+
+function setGuideTarget(target, kind) {
+  guideTarget.value = target
+  guideTargetKind.value = kind
+  guideInput.value = ''
+  guideMessages.value = [{
+    id: ++guideMessageId,
+    role: 'assistant',
+    content: kind === 'route' ? buildRouteIntro(target) : buildPlaceIntro(target)
+  }]
+}
+
+function sendGuideQuestion() {
+  const question = guideInput.value.trim()
+  if (!question) return
+  guideMessages.value.push({
+    id: ++guideMessageId,
+    role: 'user',
+    content: question
+  })
+  guideInput.value = ''
+  guideMessages.value.push({
+    id: ++guideMessageId,
+    role: 'assistant',
+    content: '这里先展示前端效果：后端接入后，我会结合当前地点、路线、资料库和你的行程上下文，用 AI 导游身份实时回答这个问题。'
+  })
+}
+
+function buildPlaceIntro(resource) {
+  const type = placeTypeLabel(resource)
+  const reason = resource.recommend_reason || resource.short_description || '这个地点适合加入当前天津行程。'
+  const address = resource.address ? `位置在${resource.address}。` : ''
+  return `欢迎来到${resource.name}。它是本次路线中的${type}节点，${reason}${address}你可以继续问我它的看点、停留时间、附近餐饮或适合拍照的位置。`
+}
+
+function buildRouteIntro(route) {
+  return `现在讲解${routeTitle(route)}。这段路径已经在地图上标出，适合用来判断两点之间的衔接、步行强度和是否需要换乘。你可以问我怎么走更轻松、沿途是否值得停留，或者下雨时怎么调整。`
+}
+
+function routeTitle(route) {
+  const origin = resourceNameById(route?.origin_place_id) || '上一站'
+  const destination = resourceNameById(route?.destination_place_id) || '下一站'
+  return `${origin} → ${destination}`
+}
+
+function resourceNameById(placeId) {
+  return resources.value.find((resource) => resource.place_id === placeId)?.name
 }
 
 async function initializeRealMap() {
@@ -303,7 +446,9 @@ function renderAmapMarkers() {
     })
     marker.on('click', () => {
       selectResource(resource)
-      openAmapInfoWindow(resource, marker)
+      if (viewMode.value === 'info') {
+        openAmapInfoWindow(resource, marker)
+      }
     })
     marker.setMap(amapInstance.value)
     return { placeId: resource.place_id, resource, marker }
@@ -331,6 +476,9 @@ function renderAmapRoutes() {
       lineCap: 'round',
       zIndex: 40
     })
+    polyline.on('click', () => selectRoute(route))
+    polyline.on('mouseover', () => polyline.setOptions({ strokeColor: '#14b8a6', strokeWeight: 8 }))
+    polyline.on('mouseout', () => polyline.setOptions({ strokeColor: '#4f65ff', strokeWeight: 7 }))
     polyline.setMap(amapInstance.value)
     return polyline
   })
@@ -365,7 +513,11 @@ function focusAmapResource(resource) {
 
   const position = markerItem.marker.getPosition()
   amapInstance.value.setCenter(position)
-  openAmapInfoWindow(resource, markerItem.marker)
+  if (viewMode.value === 'info') {
+    openAmapInfoWindow(resource, markerItem.marker)
+  } else {
+    amapInfoWindow.value.close()
+  }
 }
 
 function openAmapInfoWindow(resource, marker) {
@@ -511,14 +663,33 @@ function clamp(value, min, max) {
   gap: 10px;
 }
 
-.status-pill {
-  min-height: 40px;
-  padding: 10px 13px;
+.map-mode-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid #dce7f2;
   border-radius: 999px;
-  background: #e9fbf7;
-  color: #0f8f7e;
+  background: #f3f7fb;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+}
+
+.map-mode-switch button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #647286;
   font-size: 13px;
   font-weight: 900;
+  white-space: nowrap;
+}
+
+.map-mode-switch button.active {
+  background: #172033;
+  color: #fff;
+  box-shadow: 0 12px 24px rgba(23, 32, 51, 0.18);
 }
 
 .trip-map__alerts {
@@ -643,7 +814,7 @@ function clamp(value, min, max) {
 
 .trip-map__side {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 12px;
   min-width: 0;
   min-height: 0;
@@ -747,6 +918,162 @@ function clamp(value, min, max) {
   color: #101827;
   font-size: 22px;
   line-height: 1;
+}
+
+.map-refresh-button {
+  min-height: 44px;
+  border: 1px solid #dce7f2;
+  border-radius: 16px;
+  background: #fff;
+  color: #172033;
+  font-weight: 900;
+}
+
+.map-refresh-button:disabled {
+  opacity: 0.65;
+}
+
+.guide-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 12px;
+  min-height: 0;
+  height: 100%;
+  padding: 16px;
+  border: 1px solid #dfe8f2;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 18px 44px rgba(31, 41, 55, 0.08);
+}
+
+.guide-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5edf5;
+}
+
+.guide-panel__head span {
+  color: #4f65ff;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.guide-panel__head strong {
+  display: block;
+  margin-top: 5px;
+  color: #101827;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.guide-panel__head small {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #e9fbf7;
+  color: #0f8f7e;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.guide-panel__messages {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.guide-message {
+  display: grid;
+  gap: 5px;
+  max-width: 92%;
+}
+
+.guide-message span {
+  color: #667386;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.guide-message p {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #dfe8f2;
+  border-radius: 16px;
+  background: #fff;
+  color: #253248;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.guide-message.user {
+  justify-self: end;
+}
+
+.guide-message.user span {
+  text-align: right;
+  color: #4f65ff;
+}
+
+.guide-message.user p {
+  border-color: #b9c8ff;
+  background: #eef3ff;
+}
+
+.guide-panel__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.guide-panel__quick button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #dce7f2;
+  border-radius: 999px;
+  background: #fff;
+  color: #44536a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.guide-panel__input {
+  display: grid;
+  gap: 9px;
+}
+
+.guide-panel__input textarea {
+  width: 100%;
+  resize: none;
+  min-height: 88px;
+  padding: 12px;
+  border: 1px solid #d6e2ee;
+  border-radius: 16px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.guide-panel__input textarea:focus {
+  outline: 3px solid rgba(79, 101, 255, 0.14);
+  border-color: #8ea0ff;
+}
+
+.guide-panel__input button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #4f65ff, #14b8a6);
+  color: #fff;
+  font-weight: 950;
 }
 
 :deep(.amap-resource-marker) {
