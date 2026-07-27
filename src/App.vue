@@ -594,6 +594,19 @@ function startPlanningProgressFlow(targetPage) {
   scheduleNextStep()
 }
 
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function waitBeforePlanNavigation(startedAt, targetPage) {
+  if (targetPage !== 'trip') return
+  const elapsed = Date.now() - startedAt
+  const remaining = 4200 - elapsed
+  if (remaining > 0) {
+    await wait(remaining)
+  }
+}
+
 function updatePlanningProgressFromResult(response, mode = 'api') {
   const backendItinerary = response?.itinerary || response?.data?.itinerary
   const demoItineraryDone = mode === 'demo' && hasPlan.value && itineraryDays.value.length > 0
@@ -639,6 +652,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
 
   messages.value.push({ role: 'user', text: displayText, audioUrl, audioType })
   planning.value = true
+  const planningStartedAt = Date.now()
   startPlanningProgressFlow(targetPage)
   let planningResponse = null
 
@@ -673,6 +687,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
       saveCurrentTripHistory()
     }
     updatePlanningProgressFromResult(targetPage === 'qa' ? null : planningResponse)
+    await waitBeforePlanNavigation(planningStartedAt, targetPage)
     activePage.value = targetPage
   } catch (error) {
     apiError.value = error.message
@@ -686,6 +701,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
       saveCurrentTripHistory()
     }
     updatePlanningProgressFromResult(null, targetPage === 'qa' ? 'api' : 'demo')
+    await waitBeforePlanNavigation(planningStartedAt, targetPage)
     activePage.value = targetPage
   } finally {
     stopPlanningProgressFlow()
