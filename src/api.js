@@ -10,7 +10,10 @@ async function request(path, options = {}) {
   })
   const payload = await response.json()
   if (!response.ok || payload.success === false) {
-    throw new Error(payload.message || payload.detail || '请求失败')
+    const detail = typeof payload.detail === 'string'
+      ? payload.detail
+      : payload.detail?.message || payload.message
+    throw new Error(detail || '请求失败')
   }
   return Object.prototype.hasOwnProperty.call(payload, 'data') ? payload.data : payload
 }
@@ -113,6 +116,42 @@ export async function understandVoice({ sessionId, scene, audioBlob, clientHint 
     throw new Error(payload.message || payload.detail || '语音理解失败')
   }
   return Object.prototype.hasOwnProperty.call(payload, 'data') ? payload.data : payload
+}
+
+async function fileToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return window.btoa(binary)
+}
+
+export function fetchKnowledgeDocuments(knowledgeBaseId = 'kb_demo') {
+  return request(`/rag/documents?knowledge_base_id=${encodeURIComponent(knowledgeBaseId)}`)
+}
+
+export async function uploadKnowledgeDocument(file, knowledgeBaseId = 'kb_demo') {
+  const contentBase64 = await fileToBase64(file)
+  return request('/rag/documents', {
+    method: 'POST',
+    body: JSON.stringify({
+      filename: file.name,
+      content_type: file.type || 'application/octet-stream',
+      size_bytes: file.size,
+      knowledge_base_id: knowledgeBaseId,
+      skip_entity_extraction: true,
+      content_base64: contentBase64
+    })
+  })
+}
+
+export function deleteKnowledgeDocument(documentId, knowledgeBaseId = 'kb_demo') {
+  return request(
+    `/rag/documents/${encodeURIComponent(documentId)}?knowledge_base_id=${encodeURIComponent(knowledgeBaseId)}`,
+    { method: 'DELETE' }
+  )
 }
 
 const MAP_RESOURCE_EXTRAS = {

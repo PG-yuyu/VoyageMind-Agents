@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import TripMap from './components/TripMap.vue'
 import {
   createSession,
+  fetchKnowledgeDocuments,
   fetchMapResourcesByPlaceIds,
   getMockMapResources,
   healthCheck,
@@ -10,7 +11,8 @@ import {
   registerAccount,
   sendMessage,
   streamMessage,
-  understandVoice
+  understandVoice,
+  uploadKnowledgeDocument
 } from './api'
 import { modifyItinerary } from './api/adjustmentApi'
 import { evaluateItinerary } from './api/itineraryApi'
@@ -296,14 +298,12 @@ const qaSuggestions = [
   '带父母游天津怎么减少步行？'
 ]
 
-const documents = ref([
-  { name: '五大道游览资料.pdf', type: 'PDF', size: '1.6 MB', status: '可用于问答', chunks: 44 },
-  { name: '天津博物馆资料.md', type: 'Markdown', size: '74 KB', status: '可用于问答', chunks: 28 },
-  { name: '天津餐饮文化.txt', type: 'TXT', size: '39 KB', status: '可用于问答', chunks: 19 }
-])
-
+const KNOWLEDGE_BASE_ID = 'kb_demo'
+const documents = ref([])
 const uploadInput = ref(null)
-const uploadHint = ref('支持 PDF、DOCX、TXT、Markdown 旅游资料')
+const uploadHint = ref('连接 LangChain_RAG 知识库，上传后会写入 Chroma')
+const libraryLoading = ref(false)
+const uploadingDocuments = ref(false)
 const authMode = ref('login')
 const authOpen = ref(false)
 const isAuthenticated = ref(false)
@@ -413,6 +413,7 @@ onMounted(async () => {
       sessionId.value = `local_${Date.now()}`
     }
   }
+  await loadKnowledgeDocuments()
 })
 
 onBeforeUnmount(() => {
@@ -422,7 +423,7 @@ onBeforeUnmount(() => {
 watch(
   [
     activePage, sessionId, hasPlan, messages, requirements,
-    itineraryDays, activeDay, tripHistory, documents,
+    itineraryDays, activeDay, tripHistory,
     currentUser, isAuthenticated, recommendationResult,
     recommendedRoutes, mapResources, budget,
     currentItineraryId, baseVersion,
@@ -442,7 +443,6 @@ function persistState() {
     itineraryDays: itineraryDays.value,
     activeDay: activeDay.value,
     tripHistory: tripHistory.value,
-    documents: documents.value,
     currentUser: currentUser.value,
     isAuthenticated: isAuthenticated.value,
     recommendationResult: recommendationResult.value,
@@ -483,7 +483,6 @@ function restorePersistedState() {
     : itineraryDays.value
   activeDay.value = Number(payload.activeDay) || 1
   tripHistory.value = Array.isArray(payload.tripHistory) ? payload.tripHistory : []
-  documents.value = Array.isArray(payload.documents) ? payload.documents : documents.value
   currentUser.value = payload.currentUser || null
   isAuthenticated.value = Boolean(payload.isAuthenticated && payload.currentUser)
   recommendationResult.value = payload.recommendationResult || null
@@ -1868,23 +1867,70 @@ function mapTagToItemType(tag) {
   return 'attraction'
 }
 
+async function loadKnowledgeDocuments() {
+  libraryLoading.value = true
+  try {
+    documents.value = await fetchKnowledgeDocuments(KNOWLEDGE_BASE_ID)
+    uploadHint.value = documents.value.length
+      ? `已连接 LangChain_RAG：${documents.value.length} 个文档可用于问答`
+      : 'LangChain_RAG 当前知识库为空，可上传 PDF、DOCX、TXT、Markdown'
+  } catch (error) {
+    uploadHint.value = `资料库接口暂不可用：${error.message}`
+  } finally {
+    libraryLoading.value = false
+  }
+}
+
 function openUpload() {
+  if (uploadingDocuments.value) return
   uploadInput.value?.click()
 }
 
-function handleUpload(event) {
+async function handleUpload(event) {
   const files = Array.from(event.target.files || [])
+  event.target.value = ''
   if (!files.length) return
-  const newDocs = files.map((file) => ({
+
+  uploadingDocuments.value = true
+  const pendingDocs = files.map((file, index) => ({
+    document_id: `pending_${Date.now()}_${index}`,
     name: file.name,
     type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
     size: formatFileSize(file.size),
-    status: '处理中',
+    status: '写入 Chroma 中',
     chunks: 0
   }))
-  documents.value = [...newDocs, ...documents.value]
-  uploadHint.value = `已添加 ${files.length} 个文件，等待后端解析入库`
-  event.target.value = ''
+  documents.value = [...pendingDocs, ...documents.value]
+  uploadHint.value = `正在通过 LangChain_RAG 解析 ${files.length} 个文件...`
+
+  let successCount = 0
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index]
+    const pendingId = pendingDocs[index].document_id
+    try {
+      const savedDoc = await uploadKnowledgeDocument(file, KNOWLEDGE_BASE_ID)
+      successCount += 1
+      documents.value = documents.value.map((doc) => (
+        doc.document_id === pendingId ? savedDoc : doc
+      ))
+    } catch (error) {
+      documents.value = documents.value.map((doc) => (
+        doc.document_id === pendingId
+          ? { ...doc, status: `入库失败：${error.message}` }
+          : doc
+      ))
+    }
+  }
+
+  const failedDocs = documents.value.filter((doc) => doc.status?.startsWith('入库失败'))
+  if (successCount) {
+    await loadKnowledgeDocuments()
+    documents.value = [...failedDocs, ...documents.value]
+  }
+  uploadHint.value = successCount === files.length
+    ? `已写入 Chroma ${successCount} 个文件`
+    : `已写入 Chroma ${successCount} 个文件，${files.length - successCount} 个失败`
+  uploadingDocuments.value = false
 }
 
 function formatFileSize(size) {
@@ -2504,21 +2550,30 @@ async function submitAuth() {
             <strong>把旅游文档拖进知识库</strong>
             <p>{{ uploadHint }}</p>
           </div>
-          <button class="primary" @click="openUpload">选择文件</button>
+          <button class="primary" :disabled="uploadingDocuments" @click="openUpload">
+            {{ uploadingDocuments ? '写入中' : '选择文件' }}
+          </button>
         </section>
 
         <section class="panel docs-panel">
           <div class="section-title">
             <h2>已上传资料</h2>
-            <p>{{ documents.length }} 个文档</p>
+            <p>{{ libraryLoading ? '正在读取 LangChain_RAG' : `${documents.length} 个文档` }}</p>
           </div>
           <div class="doc-list">
-            <article v-for="doc in documents" :key="doc.name">
+            <article v-for="doc in documents" :key="doc.document_id || doc.name">
               <div>
                 <strong>{{ doc.name }}</strong>
                 <span>{{ doc.type }} · {{ doc.size }} · {{ doc.chunks }} 个片段</span>
               </div>
               <em>{{ doc.status }}</em>
+            </article>
+            <article v-if="!libraryLoading && !documents.length">
+              <div>
+                <strong>暂无入库文档</strong>
+                <span>请上传资料，或先在 LangChain_RAG 中完成文档入库。</span>
+              </div>
+              <em>等待资料</em>
             </article>
           </div>
         </section>

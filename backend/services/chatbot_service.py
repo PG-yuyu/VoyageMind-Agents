@@ -124,7 +124,7 @@ class ChatbotService:
         self, question: str, rag_result: dict | None = None
     ) -> str:
         if not self.available or self.engine is None:
-            return self._fallback_travel_answer(question)
+            return self._fallback_travel_answer(question, rag_result)
 
         system = (
             "你是天津本地旅行问答助手。只回答天津旅行相关问题。"
@@ -138,7 +138,7 @@ class ChatbotService:
             return self.chat(system, f"用户问题：{question}\n资料库检索结果：{context}")
         except Exception as exc:
             self.error = str(exc)
-            return self._fallback_travel_answer(question)
+            return self._fallback_travel_answer(question, rag_result)
 
     async def stream_travel_question(
         self, question: str, rag_result: dict | None = None
@@ -177,7 +177,20 @@ class ChatbotService:
             return "已识别为修改方案，下一步会定位受影响日期，并调用局部重规划接口。"
         return "已完成需求提取，可以进入推荐、路线、行程规划和规则校验工作流。"
 
-    def _fallback_travel_answer(self, question: str) -> str:
+    def _fallback_travel_answer(
+        self, question: str, rag_result: dict | None = None
+    ) -> str:
+        sources = (rag_result or {}).get("sources") or []
+        if sources:
+            lines = ["我在资料库里找到了这些依据："]
+            for source in sources[:3]:
+                index = source.get("citation_index") or len(lines)
+                filename = source.get("filename") or source.get("title") or "资料库文档"
+                content = source.get("content") or ""
+                lines.append(f"{index}. {filename}：{content}")
+            lines.append("这些内容来自已上传并入库的旅行资料，可作为当前问答的主要依据。")
+            return "\n".join(lines)
+
         text = question.strip()
         if "好玩" in text or "景点" in text or "玩" in text:
             return (

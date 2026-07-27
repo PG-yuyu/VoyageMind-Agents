@@ -11,8 +11,8 @@ from backend.schemas import (
     TravelRequest,
     WorkflowRequest,
 )
-from backend.services.rag_service import RAGService
 from backend.services.guide_service import GuideService
+from backend.services.rag_service import DEFAULT_KNOWLEDGE_BASE_ID, RAGService
 from backend.services.session_store import store
 from backend.workflow.travel_workflow import TravelWorkflow
 
@@ -37,15 +37,16 @@ def ok(data=None, message: str = "操作成功") -> ApiResponse:
 @router.get("/health")
 def health() -> ApiResponse:
     chatbot = workflow.chatbot_service
+    rag_stats = rag_service.stats()
     return ok(
         {
             "status": "degraded" if not chatbot.available else "ok",
             "services": {
                 "llm": "up" if chatbot.available else "fallback",
-                "rag": "adapter_ready",
-                "chroma": "external",
-                "neo4j": "external",
-                "sqlite": "in_memory_demo",
+                "rag": "langchain_rag_adapter",
+                "chroma": "LangChain_RAG/.chroma",
+                "neo4j": "LangChain_RAG configured",
+                "knowledge_base": rag_stats,
                 "amap": "external",
             },
             "chatbot_error": chatbot.error,
@@ -142,6 +143,38 @@ def get_agent_traces(session_id: str) -> ApiResponse:
     )
 
 
+@router.get("/rag/documents")
+def list_rag_documents(
+    knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID,
+) -> ApiResponse:
+    return ok(rag_service.list_documents(knowledge_base_id))
+
+
+@router.post("/rag/documents")
+def ingest_rag_document(body: dict) -> ApiResponse:
+    try:
+        result = rag_service.ingest_document(
+            filename=body.get("filename", ""),
+            content_base64=body.get("content_base64", ""),
+            content_type=body.get("content_type"),
+            knowledge_base_id=body.get("knowledge_base_id") or DEFAULT_KNOWLEDGE_BASE_ID,
+            skip_entity_extraction=bool(body.get("skip_entity_extraction", True)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ok(result, "文档已解析并写入知识库")
+
+
+@router.delete("/rag/documents/{document_id}")
+def delete_rag_document(
+    document_id: str, knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID
+) -> ApiResponse:
+    deleted = rag_service.delete_document(document_id, knowledge_base_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="DOCUMENT_NOT_FOUND")
+    return ok({"document_id": document_id}, "文档已删除")
+
+
 @router.post("/rag/query")
 def rag_query(body: dict) -> ApiResponse:
     return ok(
@@ -150,6 +183,8 @@ def rag_query(body: dict) -> ApiResponse:
             category=body.get("category"),
             place_name=body.get("place_name"),
             top_k=body.get("top_k", 5),
+            knowledge_base_id=body.get("knowledge_base_id") or DEFAULT_KNOWLEDGE_BASE_ID,
+            selected_document_ids=body.get("selected_document_ids") or [],
         )
     )
 
@@ -160,6 +195,7 @@ def recommendation_evidence(body: dict) -> ApiResponse:
         rag_service.recommendation_evidence(
             place_name=body.get("place_name", ""),
             evidence_types=body.get("evidence_types", []),
+            knowledge_base_id=body.get("knowledge_base_id") or DEFAULT_KNOWLEDGE_BASE_ID,
         )
     )
 
