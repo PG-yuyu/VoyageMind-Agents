@@ -112,7 +112,11 @@
               :class="message.role"
             >
               <span>{{ message.role === 'user' ? '你' : 'AI 导游' }}</span>
-              <p v-if="message.content">{{ message.content }}</p>
+              <div v-if="message.audioUrl" class="guide-voice-playback">
+                <p>{{ message.content || '已发送一条语音导游问题' }}</p>
+                <audio :src="message.audioUrl" :type="message.audioType || 'audio/webm'" controls preload="metadata"></audio>
+              </div>
+              <p v-else-if="message.content">{{ message.content }}</p>
               <p v-else class="guide-thinking"><i></i><i></i><i></i></p>
             </article>
           </div>
@@ -204,6 +208,7 @@ const guideLoading = ref(false)
 const guideVoiceRecording = ref(false)
 const guideVoiceHint = ref('')
 const guideVoiceError = ref('')
+const guideVoiceObjectUrls = []
 let guideMessageId = 0
 let guideVoiceRecorder = null
 let guideVoiceChunks = []
@@ -318,6 +323,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopGuideVoiceInput()
+  guideVoiceObjectUrls.forEach((url) => URL.revokeObjectURL(url))
   clearAmapPolylines()
   clearAmapMarkers()
   if (amapInstance.value) {
@@ -471,16 +477,20 @@ async function submitGuideVoiceBlob(audioBlob) {
       audioBlob,
       clientHint: guideVoiceHint.value
     })
-    const question = data.understood_text || guideVoiceHint.value || '这里最值得看的地方是什么？'
+    const question = data.understood_text || guideVoiceHint.value || '?????????????'
+    const audioUrl = URL.createObjectURL(audioBlob)
+    guideVoiceObjectUrls.push(audioUrl)
     guideMessages.value.push({
       id: ++guideMessageId,
       role: 'user',
-      content: data.display_text || '已发送一条语音导游问题'
+      content: data.display_text || '???????????',
+      audioUrl,
+      audioType: audioBlob.type || 'audio/webm'
     })
     guideLoading.value = false
     await requestGuideAnswer(question)
   } catch (error) {
-    guideVoiceError.value = '语音发送失败，请再试一次或改用文字输入。'
+    guideVoiceError.value = '????????????????????'
     guideLoading.value = false
   }
 }
@@ -1235,6 +1245,26 @@ function clamp(value, min, max) {
 .guide-message.user p {
   border-color: #b9c8ff;
   background: #eef3ff;
+}
+
+.guide-voice-playback {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #b9c8ff;
+  border-radius: 16px;
+  background: #eef3ff;
+}
+
+.guide-voice-playback p {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.guide-voice-playback audio {
+  width: min(320px, 100%);
+  height: 34px;
 }
 
 .guide-panel__quick {

@@ -631,6 +631,23 @@ textarea {
   color: #d9364f;
 }
 
+.voice-playback {
+  display: grid;
+  gap: 8px;
+  min-width: min(360px, 100%);
+}
+
+.voice-playback span {
+  color: #253248;
+  font-weight: 850;
+}
+
+.voice-playback audio {
+  width: 100%;
+  max-width: 360px;
+  height: 34px;
+}
+
 .quick-prompts {
   display: flex;
   flex-wrap: wrap;

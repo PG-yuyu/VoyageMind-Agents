@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import TripMap from './components/TripMap.vue'
 import {
   createSession,
@@ -41,6 +41,7 @@ const voiceHint = ref('')
 let voiceRecorder = null
 let voiceChunks = []
 let voiceRecognition = null
+const voiceObjectUrls = []
 const sessionId = ref('')
 const apiError = ref('')
 const hasPlan = ref(false)
@@ -351,6 +352,10 @@ onMounted(async () => {
   }
 })
 
+onBeforeUnmount(() => {
+  voiceObjectUrls.forEach((url) => URL.revokeObjectURL(url))
+})
+
 watch(
   [
     activePage, sessionId, hasPlan, messages, requirements,
@@ -454,10 +459,10 @@ async function sendPrompt(targetPage = 'trip') {
   await submitPromptText(text, targetPage)
 }
 
-async function submitPromptText(text, targetPage = 'trip', displayText = text) {
+async function submitPromptText(text, targetPage = 'trip', displayText = text, audioUrl = '', audioType = '') {
   if (!text || planning.value) return
 
-  messages.value.push({ role: 'user', text: displayText })
+  messages.value.push({ role: 'user', text: displayText, audioUrl, audioType })
   planning.value = true
   planningProgress.value = planningProgress.value.map((item, index) => ({
     ...item,
@@ -569,7 +574,7 @@ function stopVoiceInput() {
 
 async function submitVoiceBlob(audioBlob, scene) {
   if (!audioBlob.size) {
-    voiceError.value = '没有录到声音，请重新录制。'
+    voiceError.value = '?????????????'
     return
   }
   planning.value = true
@@ -582,10 +587,18 @@ async function submitVoiceBlob(audioBlob, scene) {
     })
     planning.value = false
     const targetPage = scene === 'qa' ? 'qa' : 'trip'
-    await submitPromptText(data.understood_text, targetPage, data.display_text || '已发送一条语音输入')
+    const audioUrl = URL.createObjectURL(audioBlob)
+    voiceObjectUrls.push(audioUrl)
+    await submitPromptText(
+      data.understood_text,
+      targetPage,
+      data.display_text || '?????????',
+      audioUrl,
+      audioBlob.type || 'audio/webm'
+    )
   } catch (error) {
     planning.value = false
-    voiceError.value = error.message || '语音理解失败'
+    voiceError.value = error.message || '??????'
   }
 }
 
@@ -2301,7 +2314,13 @@ async function submitAuth() {
             <div class="chat-thread">
               <article v-for="(message, index) in messages" :key="index" class="chat-row" :class="message.role">
                 <div class="avatar">{{ message.role === 'user' ? '你' : 'AI' }}</div>
-                <div class="message-content" v-html="formatMessage(message.text)"></div>
+                <div class="message-content">
+                  <div v-if="message.audioUrl" class="voice-playback">
+                    <span>{{ message.text || '已发送一条语音输入' }}</span>
+                    <audio :src="message.audioUrl" :type="message.audioType || 'audio/webm'" controls preload="metadata"></audio>
+                  </div>
+                  <div v-else v-html="formatMessage(message.text)"></div>
+                </div>
               </article>
             </div>
 
