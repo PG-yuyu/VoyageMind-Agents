@@ -112,11 +112,8 @@
               :class="message.role"
             >
               <span>{{ message.role === 'user' ? '你' : 'AI 导游' }}</span>
-              <p>{{ message.content }}</p>
-            </article>
-            <article v-if="guideLoading" class="guide-message assistant">
-              <span>AI 导游</span>
-              <p class="guide-thinking"><i></i><i></i><i></i></p>
+              <p v-if="message.content">{{ message.content }}</p>
+              <p v-else class="guide-thinking"><i></i><i></i><i></i></p>
             </article>
           </div>
 
