@@ -223,6 +223,8 @@ class FakeRecommendationIntegrationService:
         original_text: str,
         conversation_context: list[str] | None = None,
         assumptions: list[Assumption] | None = None,
+        enrich_evidence: bool = True,
+        plan_routes: bool = True,
     ) -> dict:
         """记录调用参数并返回成员二最小结果。"""
 

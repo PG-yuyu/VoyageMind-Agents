@@ -67,11 +67,6 @@ from backend.schemas.evaluation import (
     HardConstraintEvaluation,
     ValidateRequest,
 )
-from backend.schemas.evaluation_agent import (
-    OverallEvaluationResult,
-    ReplanDirective,
-    ReplanActionType,
-)
 from backend.schemas.planning_policy import ItineraryPlanningPolicy
 from backend.schemas.preference_evaluation import (
     SoftPreferenceIssue,
@@ -139,9 +134,6 @@ __all__ = [
     "HardConstraintEvaluation",
     "ValidateRequest",
     # evaluation_agent
-    "OverallEvaluationResult",
-    "ReplanDirective",
-    "ReplanActionType",
     # planning_policy
     "ItineraryPlanningPolicy",
     # preference_evaluation

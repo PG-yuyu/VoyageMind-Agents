@@ -113,7 +113,7 @@ class ChatbotService:
             "会话状态、工作流编排和结果组织。不要伪造 RAG 来源、路线、坐标或预算。"
             "用简洁中文返回面向用户的下一步说明。"
         )
-        payload = json.dumps(context, ensure_ascii=False)
+        payload = json.dumps(context, ensure_ascii=False, default=str)
         try:
             return self.chat(system, f"用户输入：{message}\n当前结构化上下文：{payload}")
         except Exception as exc:

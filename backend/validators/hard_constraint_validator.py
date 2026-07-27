@@ -190,9 +190,8 @@ def _enrich_items(itinerary: dict) -> None:
                 has_place = True
                 break
     if not has_place:
-        logging.getLogger(__name__).warning(
-            "行程 items 缺少 _place 引用。请在校验前调用 enrich_items_with_places()。"
-            "当前所有依赖 _place 的校验器（开放时间、饮食安全等）将静默跳过。"
+        logging.getLogger(__name__).debug(
+            "行程 items 缺少 _place 引用。依赖 _place 的校验器将静默跳过。"
         )
 
 

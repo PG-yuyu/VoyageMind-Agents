@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from typing import Any
 
@@ -53,10 +54,13 @@ class CoordinatorAgent:
         )
 
     def run(self, session_id: str, message: str) -> ChatResponse:
+        import time as _time
+        _t0 = _time.time()
         store.ensure_session(session_id)
         user_message = store.add_message(session_id, "user", message)
 
         intent = self.intent_agent.run(message)
+        _t1 = _time.time()
         if intent.intent == "travel_qa":
             trace = self.workflow_service.build_trace(
                 session_id=session_id,
@@ -83,6 +87,7 @@ class CoordinatorAgent:
             existing_requirements=store.requirements.get(session_id),
         )
         store.update_requirements(session_id, extraction.requirements)
+        _t2 = _time.time()
 
         trace = self.workflow_service.build_trace(
             session_id=session_id,
@@ -124,10 +129,13 @@ class CoordinatorAgent:
                     )
 
                     itinerary = mod_result.get("itinerary")
-                    # 修改后重新计算路线耗时（从 _place 引用中提取坐标）
+                    # 修改后：修复非法字段 + 同步 place_id + 补全名称 + 重算路线
                     if itinerary:
+                        _normalize_item_types(itinerary)
+                        _sync_replaced_places(itinerary)
                         _places = _extract_places_from_itinerary(itinerary)
                         if _places:
+                            _enrich_itinerary_display(itinerary, _places)
                             _compute_itinerary_routes(itinerary, _places)
                     trip_diff = mod_result.get("diff")
                     evaluation = mod_result.get("evaluation")
@@ -176,15 +184,19 @@ class CoordinatorAgent:
 
         else:
             # create_trip 分支
+            _t_rec = 0.0
             try:
+                _t_rec_start = _time.time()
                 recommendation_output = (
                     self.recommendation_integration_service.recommend_for_request(
                         requirements=extraction.requirements,
                         original_text=message,
                         conversation_context=self._conversation_context(session_id),
                         assumptions=extraction.assumptions,
+                        enrich_evidence=False,
                     )
                 )
+                _t_rec = _time.time() - _t_rec_start
             except Exception as exc:
                 trace = self.workflow_service.build_trace(
                     session_id=session_id,
@@ -200,6 +212,8 @@ class CoordinatorAgent:
                 workflow_status = "failed"
             else:
                 # ── 调用成员三生成行程 ──────────────────────────────
+                _t_plan = 0.0
+                _t_plan_start = _time.time()
                 try:
                     itinerary = self._generate_itinerary(
                         requirements=extraction.requirements,
@@ -241,6 +255,14 @@ class CoordinatorAgent:
                     },
                 )
                 workflow_status = "completed" if itinerary else "planning"
+                _t_plan = _time.time() - _t_plan_start
+                _t_total = _time.time() - _t0
+                import logging
+                _logger = logging.getLogger(__name__)
+                _logger.warning(
+                    "⏱ 全链路耗时: 意图识别=%.1fs | 需求提取=%.1fs | 推荐=%.1fs | 行程生成=%.1fs | 总计=%.1fs",
+                    _t1 - _t0, _t2 - _t1, _t_rec, _t_plan, _t_total,
+                )
             store.agent_traces[session_id] = trace.model_dump()
 
         if recommendation_output is not None:
@@ -447,19 +469,45 @@ class CoordinatorAgent:
         routes = recommendation_output["routes"] if recommendation_output is not None else None
 
         store.add_message(session_id, "assistant", reply)
-        response = ChatResponse(
-            message_id=user_message.message_id,
-            intent=intent,
-            reply=reply,
-            workflow_status=workflow_status,
-            requirements=extraction.requirements,
-            itinerary=itinerary,
-            recommendation_result=recommendation_result,
-            map_resources=map_resources,
-            routes=routes,
-            agent_trace=trace.model_dump(),
-        )
-        yield event({"type": "final", "data": response.model_dump(mode="json")})
+
+        # ── 诊断日志：检查 itinerary 状态 ──────────────────────────
+        _logger = logging.getLogger(__name__)
+        if itinerary is None:
+            _logger.warning("🔍 DEBUG: itinerary is None — 前端将回退到演示数据")
+        elif not isinstance(itinerary, dict):
+            _logger.error("🔍 DEBUG: itinerary 不是 dict, type=%s", type(itinerary).__name__)
+        else:
+            _days = itinerary.get("days", [])
+            _total_items = sum(len(d.get("items", [])) for d in _days if isinstance(d, dict))
+            _logger.warning(
+                "🔍 DEBUG: itinerary 有效 — days=%d, total_items=%d, itinerary_id=%s, version=%s",
+                len(_days), _total_items,
+                itinerary.get("itinerary_id", "?"),
+                itinerary.get("version", "?"),
+            )
+
+        try:
+            response = ChatResponse(
+                message_id=user_message.message_id,
+                intent=intent,
+                reply=reply,
+                workflow_status=workflow_status,
+                requirements=extraction.requirements,
+                itinerary=itinerary,
+                recommendation_result=recommendation_result,
+                map_resources=map_resources,
+                routes=routes,
+                agent_trace=trace.model_dump(),
+            )
+            _dumped = response.model_dump(mode="json")
+            _logger.warning("🔍 DEBUG: ChatResponse 序列化成功, reply长度=%d", len(reply))
+            yield event({"type": "final", "data": _dumped})
+        except Exception as _serialize_exc:
+            _logger.error(
+                "🔍 DEBUG: final event 序列化失败! error=%s",
+                _serialize_exc, exc_info=True,
+            )
+            raise
 
     def _generate_itinerary(
         self,
@@ -484,6 +532,15 @@ class CoordinatorAgent:
             items = rec.get(key, [])
             if isinstance(items, list):
                 places.extend(items)
+
+        logger.warning(
+            "🔍 DEBUG: _generate_itinerary 入口 — places=%d (attr=%d, hotel=%d, rest=%d), routes=%d",
+            len(places),
+            len(rec.get("attractions", []) if isinstance(rec.get("attractions"), list) else []),
+            len(rec.get("hotels", []) if isinstance(rec.get("hotels"), list) else []),
+            len(rec.get("restaurants", []) if isinstance(rec.get("restaurants"), list) else []),
+            len(recommendation_output.get("routes", [])),
+        )
         routes = recommendation_output.get("routes", [])
 
         # ── 尝试 LLM PlanningAgent ──────────────────────────────
@@ -503,13 +560,27 @@ class CoordinatorAgent:
                 ),
                 recommendation_policy=rec.get("policy_summary", {}),
             )
-            logger.info("PlanningAgent 生成行程成功: days=%d",
-                        len(result.get("itinerary", {}).get("days", [])))
             itinerary = result.get("itinerary")
+            # 校验 LLM 产出：必须有 days 且至少一天有 items，
+            # 否则视为生成失败，让规则引擎兜底。
+            if itinerary and itinerary.get("days") and any(
+                d.get("items") for d in itinerary.get("days", [])
+            ):
+                logger.warning(
+                    "🔍 DEBUG: PlanningAgent 生成成功 — days=%d, total_items=%d",
+                    len(itinerary.get("days", [])),
+                    sum(len(d.get("items", [])) for d in itinerary.get("days", []) if isinstance(d, dict)),
+                )
+            else:
+                logger.warning(
+                    "🔍 DEBUG: PlanningAgent 返回空行程 (days=%d)，降级到规则引擎",
+                    len(itinerary.get("days", [])) if itinerary else 0,
+                )
+                itinerary = None
         except (ImportError, ValueError) as exc:
-            logger.warning("PlanningAgent 不可用 (%s)，降级到规则引擎", exc)
+            logger.warning("🔍 DEBUG: PlanningAgent 不可用 (%s)，降级到规则引擎", exc)
         except Exception as exc:
-            logger.warning("PlanningAgent 调用失败 (%s)，降级到规则引擎", exc)
+            logger.warning("🔍 DEBUG: PlanningAgent 调用失败 (%s)，降级到规则引擎", exc)
 
         # ── 降级：规则引擎 ──────────────────────────────────────
         if itinerary is None:
@@ -520,23 +591,50 @@ class CoordinatorAgent:
                 attractions = [p for p in places if p.get("place_type") == "attraction"]
                 restaurants = [p for p in places if p.get("place_type") == "restaurant"]
 
+                logger.warning(
+                    "🔍 DEBUG: 规则引擎降级 — hotel=%s, attractions=%d, restaurants=%d",
+                    hotel.get("name", "无") if hotel else "无",
+                    len(attractions),
+                    len(restaurants),
+                )
+
                 it = generate_itinerary(
                     requirements=req,
                     hotel=hotel,
                     attractions=attractions,
                     restaurants=restaurants,
                 )
-                logger.info("规则引擎生成行程: days=%d", len(it.days))
+                logger.warning("🔍 DEBUG: 规则引擎生成成功 — days=%d", len(it.days))
                 itinerary = it.model_dump()
             except Exception as exc:
-                logger.error("规则引擎行程生成也失败: %s", exc)
+                logger.error("🔍 DEBUG: 规则引擎也失败! error=%s", exc, exc_info=True)
                 return None
 
-        # ── 后处理：结构标准化 + 注入引用 + 补全 note + 路线计算 ──
+        # ── 后处理：注入 _place 引用 + 路线计算 ──
+        # 注意：不再需要 _normalize_itinerary_structure，
+        # build_complete_itinerary 已产出标准结构。
         if itinerary:
-            itinerary = _normalize_itinerary_structure(itinerary, places, req)
             _enrich_itinerary_display(itinerary, places)
             _compute_itinerary_routes(itinerary, places)
+
+            # 保存到版本库，确保后续调整 Agent 能查到
+            try:
+                from backend.schemas.itinerary import Itinerary
+                itinerary_obj = Itinerary(**itinerary)
+                save_version(itinerary_obj)
+                logger.warning(
+                    "🔍 DEBUG: 行程已保存到版本库 — id=%s, version=%s",
+                    itinerary_obj.itinerary_id, itinerary_obj.version,
+                )
+            except Exception as _save_exc:
+                logger.error("🔍 DEBUG: 保存行程版本失败: %s", _save_exc, exc_info=True)
+
+        # ── 缓存推荐候选地点，供调整 Agent 筛选替代项 ──
+        if places:
+            sid = req.get("session_id", "")
+            if sid:
+                store.recommended_places[sid] = places
+                logger.warning("🔍 DEBUG: 缓存 %d 个推荐候选地点到 session[%s]", len(places), sid)
 
         return itinerary
 
@@ -756,6 +854,45 @@ def _enrich_itinerary_display(itinerary: dict, places: list[dict]) -> None:
             if not item.get("note") and place:
                 item["note"] = place.get("name") or place.get("short_description", "")
 
+            # 检测 _place 与 note 是否指向不同地点（LLM 替换了但没同步 place_id）
+            if place and item.get("note"):
+                note_full = item["note"].strip()
+                place_name = (place.get("name") or "").strip()
+                if not place_name:
+                    continue
+                # 提取 note 中的候选地名：取逗号/顿号前的第一段
+                candidate_name = note_full.split("，")[0].split(",")[0].split("、")[0].strip()
+                if (
+                    candidate_name != place_name
+                    and len(candidate_name) >= 2
+                    and not any(kw in candidate_name for kw in ("替换", "替代", "换成", "改为", "已调整"))
+                ):
+                    # 在 PlaceRepository 中按名称查找（比 places 列表更全）
+                    found = False
+                    for p in places:
+                        pname = (p.get("name") or "").strip()
+                        if pname == candidate_name or pname == note_full:
+                            item["_place"] = p
+                            item["place_id"] = p.get("place_id", item.get("place_id", ""))
+                            item["note"] = pname  # 精简 note 为干净地名
+                            found = True
+                            break
+                    # places 列表没找到，回查 PlaceRepository
+                    if not found:
+                        try:
+                            from backend.app.repositories import PlaceRepository
+                            repo = PlaceRepository()
+                            for p in repo.list_attractions() + repo.list_hotels() + repo.list_restaurants():
+                                pd = p.to_dict()
+                                pname = (pd.get("name") or "").strip()
+                                if pname == candidate_name:
+                                    item["_place"] = pd
+                                    item["place_id"] = pd.get("place_id", item.get("place_id", ""))
+                                    item["note"] = pname
+                                    break
+                        except Exception:
+                            pass
+
             # 终极兜底：note 仍为空时，根据 item_type 给出合理标签，
             # 避免前端回退到展示原始 place_id 或 "attraction"
             if not item.get("note"):
@@ -763,30 +900,163 @@ def _enrich_itinerary_display(itinerary: dict, places: list[dict]) -> None:
                 item["note"] = _fallback_labels.get(itype, itype or "未指定")
 
 
-def _extract_places_from_itinerary(itinerary: dict) -> list[dict]:
-    """从行程的每个 item._place 中提取地点列表（用于修改后重新计算路线）。"""
-    places: list[dict] = []
-    seen: set[str] = set()
+def _sync_replaced_places(itinerary: dict) -> None:
+    """检测 LLM 只在 note 中写了替换但没改 place_id，从数据库回补。
+
+    当 note 包含"替换"/"换成"/"替代"等关键词但没有对应 place_id 变更时，
+    尝试从 PlaceRepository 按名称查找新地点并更新 place_id 和 _place。
+    """
+    import re
+
+    # 预加载地点数据库（名称 → 地点）
+    name_index: dict[str, dict] = {}
+    try:
+        from backend.app.repositories import PlaceRepository
+        repo = PlaceRepository()
+        for p in repo.list_attractions() + repo.list_hotels() + repo.list_restaurants():
+            pd = p.to_dict()
+            nm = (pd.get("name") or "").strip()
+            if nm:
+                name_index[nm] = pd
+    except Exception:
+        pass
+
     for day_data in itinerary.get("days", []):
         for item in day_data.get("items", []):
-            place = item.get("_place")
-            if place and isinstance(place, dict):
-                pid = place.get("place_id", "")
-                if pid and pid not in seen:
-                    seen.add(pid)
-                    places.append(place)
-            # 也从顶层 item 字段重建最小地点信息
+            note = item.get("note") or ""
             pid = item.get("place_id") or ""
-            if pid and pid not in seen:
-                coord = item.get("_route_from_prev_place_id")  # not a coord, skip
-                # 如果没有 _place 但有 place_id，用 item 本身的 note 作为名称
-                if not place:
-                    seen.add(pid)
-                    places.append({
-                        "place_id": pid,
-                        "name": item.get("note", ""),
-                        "place_type": item.get("item_type", ""),
-                    })
+            place = item.get("_place") or {}
+
+            # 检测替换意图：note 中提到新景点名称
+            patterns = [
+                r'替换[^为].*?为\s*(\S{2,20})',
+                r'换[成为]\s*(\S{2,20})',
+                r'替代[^景].*?为\s*(\S{2,20})',
+                r'改为\s*(\S{2,20})',
+            ]
+            new_name = None
+            for pat in patterns:
+                m = re.search(pat, note)
+                if m:
+                    new_name = m.group(1).strip()
+                    break
+
+            if not new_name:
+                # 没有匹配到替换模式，但 note 本身可能就是一个干净的地名
+                # （LLM 直接设置了 note 为新地名而非替换描述）
+                place_name = (place.get("name") or "").strip()
+                note_name = note.strip()
+                if (
+                    len(note_name) >= 2 and len(note_name) <= 30
+                    and note_name != place_name
+                    and not note_name.startswith("已")
+                ):
+                    new_name = note_name
+                else:
+                    continue
+
+            # 已经是当前地点名 → 无需替换
+            place_name = (place.get("name") or "").strip()
+            if new_name == place_name:
+                continue
+
+            # 查找新地点：精确 → 模糊 → 子串匹配
+            new_place = name_index.get(new_name)
+            if not new_place:
+                for nm, pd in name_index.items():
+                    if new_name in nm or nm in new_name:
+                        new_place = pd
+                        break
+            # 更宽松的匹配：拆词逐段匹配
+            if not new_place and len(new_name) >= 2:
+                for nm, pd in name_index.items():
+                    # 2字以上的公共子串
+                    for i in range(len(new_name) - 1):
+                        chunk = new_name[i:i+2]
+                        if chunk in nm:
+                            new_place = pd
+                            break
+                    if new_place:
+                        break
+
+            if new_place:
+                new_pid = new_place.get("place_id", "")
+                if new_pid and new_pid != pid:
+                    item["place_id"] = new_pid
+                    item["_place"] = new_place
+                    item["note"] = new_place.get("name", new_name)
+                    new_price = new_place.get("price")
+                    if new_price is not None:
+                        item["cost_per_person"] = float(new_price)
+                        item["total_cost"] = float(new_price)
+
+
+def _normalize_item_types(itinerary: dict) -> None:
+    """修正 LLM 可能输出的非法 item_type（如 restaurant → lunch/dinner）。"""
+    _valid_types = {
+        "departure", "transport", "attraction", "lunch", "dinner",
+        "hotel", "rest", "return",
+    }
+    for day_data in itinerary.get("days", []):
+        for item in day_data.get("items", []):
+            itype = item.get("item_type", "")
+            if itype in _valid_types:
+                continue
+            # 修正：restaurant → lunch（默认），如果时间在 17:00 后 → dinner
+            if itype == "restaurant":
+                start = item.get("start_time", "12:00")
+                item["item_type"] = "dinner" if start >= "17:00" else "lunch"
+            else:
+                item["item_type"] = "attraction"  # 兜底
+
+
+def _extract_places_from_itinerary(itinerary: dict) -> list[dict]:
+    """从行程 items 中提取地点列表（用于修改后补全名称和重算路线）。
+
+    优先级：_place 引用 → PlaceRepository 查找 → item 字段重建。
+    """
+    places: list[dict] = []
+    seen: set[str] = set()
+
+    # 预加载 PlaceRepository（一次性查所有可能需要的地点）
+    repo_places: dict[str, dict] = {}
+    try:
+        from backend.app.repositories import PlaceRepository
+        repo = PlaceRepository()
+        for p in repo.list_attractions() + repo.list_hotels() + repo.list_restaurants():
+            pd = p.to_dict()
+            pid = pd.get("place_id", "")
+            if pid:
+                repo_places[pid] = pd
+    except Exception:
+        pass
+
+    for day_data in itinerary.get("days", []):
+        for item in day_data.get("items", []):
+            pid = item.get("place_id") or ""
+            if not pid or pid in seen:
+                continue
+            # 来源1: 已有的 _place 引用
+            place = item.get("_place")
+            if place and isinstance(place, dict) and place.get("place_id"):
+                seen.add(pid)
+                places.append(place)
+                continue
+            # 来源2: PlaceRepository 查找（新替换的地点从这里补全）
+            if pid in repo_places:
+                seen.add(pid)
+                repo_place = repo_places[pid]
+                places.append(repo_place)
+                # 回写到 item，后续 enrichment 可用
+                item["_place"] = repo_place
+                continue
+            # 来源3: 从 item 字段重建最小信息
+            seen.add(pid)
+            places.append({
+                "place_id": pid,
+                "name": item.get("note", ""),
+                "place_type": item.get("item_type", ""),
+            })
     return places
 
 

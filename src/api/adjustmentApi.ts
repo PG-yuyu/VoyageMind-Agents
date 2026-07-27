@@ -15,6 +15,7 @@ export async function modifyItinerary(data: {
   action: string
   new_constraints?: Record<string, unknown>
   original_text?: string | null
+  current_itinerary?: Record<string, unknown> | null
 }): Promise<ApiResponse> {
   const resp = await fetch(`${BASE}/modify`, {
     method: 'POST',

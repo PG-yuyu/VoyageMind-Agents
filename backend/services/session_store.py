@@ -7,6 +7,8 @@ class SessionStore:
         self.messages: dict[str, list[ChatMessage]] = {}
         self.requirements: dict[str, TravelRequest] = {}
         self.agent_traces: dict[str, dict] = {}
+        # 缓存推荐返回的所有候选地点，供调整 Agent 从中筛选替代项
+        self.recommended_places: dict[str, list[dict]] = {}
 
     def create_session(self, user_id: str) -> Session:
         session = Session(session_id=new_id("session"), user_id=user_id)

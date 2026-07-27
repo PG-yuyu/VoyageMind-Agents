@@ -8,7 +8,7 @@
 调用方: adjustment_agent.py → LLM 局部重规划
 """
 
-LOCAL_REPLAN_PROMPT = """你是一个严格的行程调整助手。用户要求修改行程，你**必须真正修改**相关行程项。
+LOCAL_REPLAN_PROMPT = """你是一个行程智能调整助手。用户对已有行程提出了修改要求，你需要理解其意图并精准执行。
 
 ## 当前完整行程
 {current_itinerary}
@@ -21,41 +21,43 @@ LOCAL_REPLAN_PROMPT = """你是一个严格的行程调整助手。用户要求�
 - 用户原话: {original_text}
 
 ## 锁定状态说明
-以下行程项已被锁定，**不得修改**（带 * 标记）:
+以下行程项的 **地点和顺序不可改变**（带 * 标记）:
 {locked_items}
 
-以下行程项可以自由调整（无标记）:
+以下行程项可以自由调整:
 {unlocked_items}
 
-## 替代资源（由推荐 Agent 提供）
+## 替代资源（由推荐 Agent 提供，请优先从中选择）
 {replacement_places}
 
 ## 可用路线
 {replacement_routes}
 
-## 必须遵守的规则
+## 核心原则
 
-### 核心：你必须真正修改行程项
-1. **对于每个可修改项**，至少修改以下字段之一：
-   - `place_id`：换成新的地点 ID（如 `alt_原ID` 或 `new_xxx`）
-   - `note`：添加修改原因说明（如 "已替换为博物馆"）
-   - `total_cost`：根据替换调整费用
-2. **不得原样返回**未修改的行程数据。每项至少要有 1 处变化。
-3. 锁定项的时间、地点、顺序均不得改变。
-4. 修改后保持时间连续性和合理性。
-5. 添加 `replan_notes` 说明每项修改的原因。
+### 1. 精准修改，最小变更
+- 只修改用户明确要求改的项。不要顺手改酒店、餐厅、交通等无关项。
+- locked 项（带 *）的地点(place_id)、类型(item_type)不得改变，但时间可以微调以衔接。
+- 替换景点时：从替代资源列表中选最匹配用户原话的一个，改其 place_id、note。
+- 换完后检查：如果新景点游玩时长不同，可以微调后续项的时间，但不要改变它们的 place_id。
 
-### 修改动作详解
+### 2. 修改动作参考
 | 动作 | 你需要做什么 |
 |------|------------|
-| replace_attraction | 替换景点：改 place_id + 改 note + 可选调整 cost |
-| delete_place | 删除项：从 items 移除，调整前后衔接 |
-| replace_restaurant | 替换餐厅：改 place_id + 改 note |
-| change_hotel | 更换酒店：影响所有天的出发/返回地点 |
-| change_budget | 预算调整：降低高消费项的 total_cost |
-| change_time | 时间调整：改 start_time / end_time |
-| reduce_walking | 减步行：缩短 duration 或替换远程地点 |
-| change_to_indoor | 户外→室内：改 place_id + note 标注室内 |
+| replace_attraction | 找到目标景点 → 从替代资源中选一个 → 改 place_id + note + 调整时长/费用 |
+| replace_restaurant | 找到目标餐厅 → 从替代资源中选一个 → 改 place_id + note |
+| change_hotel | 更换所有天的出发/返回酒店的 place_id |
+| change_budget | 适当降低高消费项的 total_cost |
+| change_time | 调整对应项的 start_time / end_time |
+| reduce_walking | 缩短远程景点的 duration，或替换为更近的 |
+| change_to_indoor | 替换为替代资源中的室内景点 |
+
+### 3. 输出要求
+- 输出完整 JSON，包含受影响天的**所有 items**（locked + unlocked）
+- locked 项的 place_id、item_type、item_id 必须与输入完全相同
+- unlocked 项才做修改
+- 保持时间连续：如果某个项时间变了，后续项顺延
+- 在 replan_notes 中说明每项修改的原因
 
 ## 输出格式
 ```json
@@ -64,25 +66,17 @@ LOCAL_REPLAN_PROMPT = """你是一个严格的行程调整助手。用户要求�
         {{
             "day": 受影响的天数,
             "items": [
-                {{
-                    "item_id": "保持原ID",
-                    "place_id": "alt_原ID 或 new_xxx",
-                    "note": "说明修改原因",
-                    ...其他字段保持或微调
-                }}
+                // 该天的所有 items（含 locked + unlocked），顺序不变
             ]
         }}
     ],
     "affected_days": [目标天],
-    "replan_notes": [
-        "替换了 XXX 为 YYY（原因）"
-    ]
+    "replan_notes": ["每项修改一句说明"]
 }}
 ```
 
 ### 重要
-- 输出 JSON **必须包含修改后的 items**，不要照抄原行程
-- 锁定项必须保留且字段不变
-- 每条 replan_notes 描述一项修改
+- locked 项的 place_id 不得修改
+- 不要删除任何项（除非 action=delete_place）
 - JSON 必须合法，无注释、无尾逗号
 """

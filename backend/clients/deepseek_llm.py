@@ -39,7 +39,7 @@ class DeepSeekLLM:
         api_key: str | None = None,
         model: str = "deepseek-v4-flash",
         temperature: float = 0.3,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ):
         """
         Args:
@@ -83,16 +83,21 @@ class DeepSeekLLM:
                 max_tokens=self.max_tokens,
             )
             content = resp.choices[0].message.content or ""
+            finish_reason = resp.choices[0].finish_reason or ""
             logger.info(
-                "DeepSeek 调用成功: model=%s, input=%d chars, output=%d chars",
-                self.model,
-                len(prompt),
-                len(content),
+                "DeepSeek 调用成功: model=%s, input=%d chars, output=%d chars, finish=%s",
+                self.model, len(prompt), len(content), finish_reason,
             )
+            if not content:
+                logger.warning(
+                    "DeepSeek 返回空内容! finish_reason=%s, model=%s, prompt_head=%s",
+                    finish_reason, self.model, prompt[:200],
+                )
             return content
 
         except Exception as exc:
-            logger.error("DeepSeek 调用失败: %s", exc)
+            logger.error("DeepSeek 调用失败: %s (model=%s, prompt_len=%d)",
+                         exc, self.model, len(prompt))
             raise
 
     def chat(

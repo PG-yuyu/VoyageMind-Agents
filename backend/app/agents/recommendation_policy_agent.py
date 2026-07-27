@@ -42,24 +42,26 @@ class RecommendationPolicyAgent:
     def _context_to_payload(self, context: RecommendationContext) -> dict[str, Any]:
         """转换为可交给大模型理解的上下文 JSON。"""
 
+        req = context.requirements
         return {
-            "session_id": context.session_id,
-            "requirements": context.requirements.model_dump(),
+            "city": req.city,
+            "days": req.days,
+            "people": req.people,
+            "total_budget": req.total_budget,
+            "interests": req.interests,
+            "food_preferences": req.food_preferences,
+            "preferred_areas": req.preferred_areas,
+            "avoid_areas": req.avoid_areas,
+            "travel_pace": req.travel_pace,
             "original_text": context.original_text,
-            "conversation_context": list(context.conversation_context),
+            "conversation_context": list(context.conversation_context)[-3:],
             "explicit_hard_constraints": [
-                asdict(constraint)
-                for constraint in context.explicit_hard_constraints
+                asdict(c) for c in context.explicit_hard_constraints
             ],
             "semantic_preferences": [
-                asdict(preference) for preference in context.semantic_preferences
+                asdict(p) for p in context.semantic_preferences
             ],
-            "assumptions": list(context.assumptions),
-            "unresolved_fields": list(context.unresolved_fields),
-            "instruction": (
-                "隐含偏好必须由大模型理解；本地程序只校验 JSON、枚举、"
-                "价格上下限是否来自明确硬约束。"
-            ),
+            "instruction": "total_budget 是总预算，不要拆成单项价格上限。只输出 JSON。",
         }
 
     def _policy_from_model_output(

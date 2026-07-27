@@ -20,12 +20,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import date as date_type
 from typing import Any, Callable
 
 from backend.agents.planning_state import PlanningPhase, PlanningState
 from backend.agents.itinerary_preference_critic import ItineraryPreferenceCritic
-from backend.agents.evaluation_agent import EvaluationAgent
 
 from backend.prompts.planning_preference_interpretation_prompt import (
     PLANNING_PREFERENCE_INTERPRETATION_PROMPT,
@@ -56,18 +54,14 @@ class PlanningAgent:
         self,
         llm_callable: Callable[[str], str],
         preference_critic: ItineraryPreferenceCritic | None = None,
-        evaluation_agent: EvaluationAgent | None = None,
     ):
         """
         Args:
             llm_callable: LLM 调用函数，签名 (prompt: str) -> str
             preference_critic: 软偏好评价器，不传则使用默认实例
-            evaluation_agent: 评价系统 Agent，用于双轨统一评价 + 重规划指令生成
-                            不传则使用内部默认组合（向后兼容）
         """
         self._llm = llm_callable
         self._critic = preference_critic or ItineraryPreferenceCritic(llm_callable)
-        self._evaluator = evaluation_agent
 
     # ====================================================================
     # 主入口
@@ -120,32 +114,12 @@ class PlanningAgent:
         )
 
         try:
-            # ── Step 1: 偏好解释 → PlanningPolicy ──────────────────
-            state.transition_to(PlanningPhase.PREFERENCE_INTERPRETATION)
-            planning_policy = self._interpret_preferences(state)
-            state.planning_policy = planning_policy
-
-            # ── Step 2: 生成初始行程 ────────────────────────────────
+            # ── Step 1: 生成初始行程 ────────────────────────────────
             state.transition_to(PlanningPhase.ITINERARY_PLANNING)
             itinerary = self._plan_itinerary(state)
             state.itinerary = itinerary
 
-            # ── Step 3: 硬约束校验 + 修复循环 ──────────────────────
-            state.transition_to(PlanningPhase.HARD_VALIDATING)
-            hard_ok = self._hard_validation_loop(state)
-            if not hard_ok:
-                state.add_error("硬约束修复达到最大次数仍未通过")
-                return self._build_result(state)
-
-            # ── Step 4: 软偏好评价 + 优化循环 ──────────────────────
-            state.transition_to(PlanningPhase.SOFT_EVALUATING)
-            soft_ok = self._soft_optimization_loop(state)
-            if not soft_ok:
-                logger.warning(
-                    "软偏好优化达到最大次数，以当前结果输出"
-                )
-
-            # ── Step 5: 完成 ────────────────────────────────────────
+            # ── Step 2: 完成 ────────────────────────────────────────
             state.transition_to(PlanningPhase.COMPLETED)
 
             # 保存首版行程
@@ -221,25 +195,26 @@ class PlanningAgent:
     # ====================================================================
 
     def _plan_itinerary(self, state: PlanningState) -> dict[str, Any]:
-        """LLM 生成初始行程。"""
+        """LLM 仅输出核心决策（选景点+排序+理由），Python 补全所有结构化字段。"""
         req = state.requirements
         policy = state.planning_policy or {}
         sp = state.semantic_preferences
+
+        # 缓存 places 供 _build_itinerary_dict 使用
+        self._current_places = state.places
 
         # 准备资源描述
         attractions = [p for p in state.places if p.get("place_type") == "attraction"]
         hotels = [p for p in state.places if p.get("place_type") == "hotel"]
         restaurants = [p for p in state.places if p.get("place_type") == "restaurant"]
 
-        # 格式化景点信息
+        # 格式化景点信息：ID + 名称 + 价格 + 区域 + 时长
         attr_lines = []
         for i, a in enumerate(attractions, 1):
+            area = a.get('area', '') or ''
             attr_lines.append(
                 f"  {i}. {a.get('name', '?')} (ID: {a.get('place_id', '?')}) "
-                f"| 门票: ¥{a.get('price', 0)} | 建议时长: {a.get('duration_minutes', 120)}分 "
-                f"| 开放: {a.get('open_time', '?')}-{a.get('close_time', '?')} "
-                f"| 兴趣: {a.get('categories', [])} "
-                f"| 室内: {a.get('indoor', '?')}"
+                f"| ¥{a.get('price', 0)} | {area} | {a.get('duration_minutes', 90)}分"
             )
         attrs_str = "\n".join(attr_lines) if attr_lines else "（无景点推荐）"
 
@@ -247,7 +222,7 @@ class PlanningAgent:
         for i, h in enumerate(hotels, 1):
             hotel_lines.append(
                 f"  {i}. {h.get('name', '?')} (ID: {h.get('place_id', '?')}) "
-                f"| ¥{h.get('price', 0)}/晚 | {h.get('address', '')}"
+                f"| ¥{h.get('price', 0)}/晚"
             )
         hotels_str = "\n".join(hotel_lines) if hotel_lines else "（无酒店推荐）"
 
@@ -255,72 +230,78 @@ class PlanningAgent:
         for i, r in enumerate(restaurants, 1):
             rest_lines.append(
                 f"  {i}. {r.get('name', '?')} (ID: {r.get('place_id', '?')}) "
-                f"| 人均: ¥{r.get('price', 0)} | {r.get('categories', [])}"
+                f"| 人均 ¥{r.get('price', 0)}"
             )
         rests_str = "\n".join(rest_lines) if rest_lines else "（无餐厅推荐）"
-
-        route_str = json.dumps(state.routes, ensure_ascii=False, indent=2) if state.routes else "（无路线数据）"
 
         pref_lines = []
         for p in sp:
             pref_lines.append(f"- {p.get('text', '')}")
         pref_str = "\n".join(pref_lines) if pref_lines else "（无）"
 
-        # 构建区域约束描述
         area_lines = []
         preferred = req.get("preferred_areas", [])
         avoided = req.get("avoid_areas", [])
         if preferred:
-            area_lines.append(
-                f"- 用户希望集中在以下区域：{', '.join(preferred)}。"
-                f"所有景点、酒店、餐厅必须优先从这些区域选择。"
-            )
+            area_lines.append(f"优先区域: {', '.join(preferred)}")
         if avoided:
-            area_lines.append(
-                f"- 用户明确不想去以下区域：{', '.join(avoided)}。"
-                f"绝对不要安排这些区域内的任何地点。"
-            )
-        area_str = "\n".join(area_lines) if area_lines else "（无特殊区域约束）"
+            area_lines.append(f"回避区域: {', '.join(avoided)}")
+        area_str = "; ".join(area_lines) if area_lines else "无"
 
         prompt = ITINERARY_PLANNING_PROMPT.format(
-            daily_themes=json.dumps(policy.get("daily_themes", []), ensure_ascii=False),
-            pace_strategy=policy.get("pace_strategy", "normal"),
-            combination_rationale=policy.get("combination_rationale", ""),
-            priority_order=json.dumps(policy.get("priority_order", []), ensure_ascii=False),
-            buffer_minutes=policy.get("buffer_minutes", 15),
             city=req.get("city", "未知"),
             days=req.get("days", 1),
             people=req.get("people", 1),
+            total_budget=req.get("total_budget", 0),
+            interests=req.get("interests", []),
             daily_start=req.get("daily_start_time", "09:00"),
             daily_end=req.get("daily_end_time", "18:00"),
             walking_limit_m=req.get("walking_limit_m", 99999),
-            transport_modes=req.get("transport_modes", ["walking"]),
+            pace_strategy=policy.get("pace_strategy", "normal"),
             attractions=attrs_str,
             hotels=hotels_str,
             restaurants=rests_str,
-            routes=route_str,
             semantic_preferences=pref_str,
             area_constraints=area_str,
         )
 
         raw = self._llm(prompt)
 
-        # LLM 可能返回空文本（如 token 超限截断），重试一次
-        if not raw or not raw.strip():
-            logger.warning("LLM 返回空文本，使用简化提示词重试")
-            retry_prompt = (
-                f"请为{req.get('days', 1)}天天津行程输出 JSON。"
-                f"必须包含 days 数组，每个 day 有 items。"
-                f"景点候选: {[a.get('name', '') for a in attractions[:5]]}。"
-                f"区域约束: {area_str}。"
-                f"只输出 JSON，不要其他文字。"
-            )
-            raw = self._llm(retry_prompt)
+        # 第一次调用：解析 JSON 并验证有 attractions
+        if raw and raw.strip():
+            try:
+                data = self._parse_json(raw)
+                itinerary = self._build_itinerary_dict(data, req)
+                if itinerary.get("days") and any(
+                    d.get("items") for d in itinerary.get("days", [])
+                ):
+                    return itinerary
+                logger.warning("LLM 返回了空 days/items，重试")
+            except Exception as e:
+                logger.warning("LLM 返回数据无法使用 (%s)，重试", e)
 
+        # 重试：简洁 prompt，只要求输出核心决策
+        logger.warning("使用简化提示词重试")
+        retry_names = []
+        for a in attractions[:8]:
+            nm = a.get("name", "?")
+            pid = a.get("place_id", "?")
+            retry_names.append(f"{nm}(ID:{pid})")
+        total_attrs = len(attractions)
+        per_day = max(1, total_attrs // max(1, req.get("days", 1)))
+        retry_prompt = (
+            f"为{req.get('days', 1)}天{req.get('city', '天津')}行程选景点和餐厅。"
+            f"候选景点: {', '.join(retry_names)}。"
+            f"每天约 {per_day} 个景点。"
+            f"输出 JSON: {{\"days\":[{{\"day\":1,\"attractions\":[{{\"place_id\":\"...\",\"note\":\"理由\"}}],\"lunch_place_id\":\"...\"}}]}}"
+        )
+        raw = self._llm(retry_prompt)
         data = self._parse_json(raw)
-
-        # 构建标准行程结构
         itinerary = self._build_itinerary_dict(data, req)
+        if not itinerary.get("days") or not any(
+            d.get("items") for d in itinerary.get("days", [])
+        ):
+            raise ValueError("重试后 LLM 仍然返回空 days/items，需降级到规则引擎")
         return itinerary
 
     # ====================================================================
@@ -445,35 +426,13 @@ class PlanningAgent:
             except Exception as exc:
                 logger.warning("预算计算失败: %s", exc)
 
-        # ── 综合评价（使用 EvaluationAgent，如已配置） ─────────────
-        overall_evaluation = None
-        if self._evaluator and state.itinerary:
-            try:
-                overall_result = self._evaluator.evaluate(
-                    itinerary=state.itinerary,
-                    requirements=state.requirements,
-                    places=state.places,
-                    semantic_preferences=state.semantic_preferences,
-                    generate_replan_directives=(not state.is_completed),
-                )
-                overall_evaluation = overall_result.model_dump()
-                logger.info(
-                    "综合评价: passed=%s, score=%.2f, directives=%d",
-                    overall_result.passed,
-                    overall_result.overall_score,
-                    len(overall_result.replan_directives),
-                )
-            except Exception as exc:
-                logger.warning("综合评价失败: %s", exc)
-
         return {
             "itinerary": state.itinerary,
             "planning_policy": state.planning_policy,
             "budget": budget,
             "hard_evaluation": state.hard_evaluation,
             "soft_evaluation": state.soft_evaluation,
-            "overall_evaluation": overall_evaluation,  # v2 新增统一评价
-            "trip_diff": None,  # 初次规划无 diff
+            "trip_diff": None,
             "need_follow_up": bool(state.errors),
             "follow_up_message": state.errors[-1] if state.errors else None,
             "agent_trace": state.trace_steps,
@@ -487,65 +446,16 @@ class PlanningAgent:
     def _build_itinerary_dict(
         self, data: dict, requirements: dict
     ) -> dict[str, Any]:
-        """构建标准行程字典（自动补全 LLM 输出缺失的必填字段）。"""
-        import uuid
+        """LLM 只输出核心决策（place_id + note + 顺序），
+        委托 bridge 函数从 place 数据确定性构建完整行程结构。"""
+        from backend.services.itinerary_builder import build_complete_itinerary
 
-        total_cost = data.get("total_cost_estimate", 0) or 0
-
-        days = []
-        for day_idx, day_data in enumerate(data.get("days", [])):
-            # 按数组位置确定 day 编号，避免 LLM 输出错误 day 值
-            day_num = day_idx + 1
-            raw_items = day_data.get("items", [])
-
-            # 补全每个 item 的必填字段
-            items = []
-            for idx, it in enumerate(raw_items):
-                item_id = it.get("item_id") or f"day{day_num}_item_{idx:03d}"
-                items.append({
-                    "item_id": item_id,
-                    "day": day_num,
-                    "item_type": it.get("item_type", "attraction"),
-                    "place_id": it.get("place_id"),
-                    "start_time": it.get("start_time", "09:00"),
-                    "end_time": it.get("end_time", "10:00"),
-                    "duration_minutes": it.get("duration_minutes", 60) or 60,
-                    "route_from_previous_id": it.get("route_from_previous_id"),
-                    "cost_per_person": float(it.get("cost_per_person", 0) or 0),
-                    "total_cost": float(it.get("total_cost", 0) or 0),
-                    "locked": it.get("locked", False),
-                    "note": it.get("note"),
-                })
-
-            daily_cost = sum(float(it["total_cost"]) for it in items)
-            walking = day_data.get("walking_distance_m", 0) or 0
-            # date 优先使用 LLM 输出，其次 requirements 中的 start_date，最后用今天
-            day_date = (
-                day_data.get("date")
-                or requirements.get("start_date")
-                or date_type.today().isoformat()
-            )
-            days.append({
-                "day": day_num,
-                "date": day_date,
-                "items": items,
-                "daily_cost": round(daily_cost, 2),
-                "walking_distance_m": walking,
-                "start_time": items[0]["start_time"] if items else "09:00",
-                "end_time": items[-1]["end_time"] if items else "18:00",
-            })
-
-        return {
-            "itinerary_id": f"trip_{uuid.uuid4().hex[:8]}",
-            "session_id": requirements.get("session_id", ""),
-            "version": 1,
-            "parent_version": None,
-            "requirements_snapshot": requirements,
-            "days": days,
-            "hotel_place_id": None,
-            "total_cost": round(total_cost, 2),
-            "status": "draft",
-        }
+        places = getattr(self, "_current_places", [])
+        return build_complete_itinerary(
+            decisions=data,
+            places=places,
+            requirements=requirements,
+        )
 
     def _parse_json(self, raw: str) -> dict:
         """解析 LLM 返回的 JSON，处理 markdown 代码块包裹。

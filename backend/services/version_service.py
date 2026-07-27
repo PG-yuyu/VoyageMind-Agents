@@ -58,14 +58,26 @@ def save_version(itinerary: Itinerary) -> Itinerary:
     return itinerary
 
 
-def get_itinerary(itinerary_id: str, version: int | None = None) -> Itinerary | None:
-    """获取指定版本行程。version=None 则返回最新版本。"""
+def get_itinerary(
+    itinerary_id: str,
+    version: int | None = None,
+    *,
+    enrich: bool = True,
+) -> Itinerary | None:
+    """获取指定版本行程。version=None 则返回最新版本。
+
+    enrich=True 时自动从 PlaceRepository 补全 items 的 _place 引用，
+    确保调用方始终能拿到带地点名称的完整数据。
+    """
     versions = _store.get(itinerary_id)
     if not versions:
         return None
     if version is None:
         version = max(versions.keys())
-    return versions.get(version)
+    it = versions.get(version)
+    if it is not None and enrich:
+        _enrich_loaded_itinerary(it)
+    return it
 
 
 def get_all_versions(itinerary_id: str) -> list[dict[str, Any]]:
@@ -233,3 +245,90 @@ def _dist_diff(old: ItineraryItem, new: ItineraryItem) -> int:
     if isinstance(new_route, dict):
         new_dist = new_route.get("distance_m", 0) or 0
     return new_dist - old_dist
+
+
+# ============================================================================
+# 行程加载后 _place 补全
+# ============================================================================
+
+
+def _enrich_loaded_itinerary(it: Itinerary) -> None:
+    """为从存储加载的 Itinerary 的每个 item 补全 _place 引用。
+
+    先 model_dump 为 dict → 注入 _place → 再重新解析为 Itinerary。
+    这样 model_dump(mode="json") 之后的 dict 仍保留 _place。
+    """
+    try:
+        from backend.app.repositories import PlaceRepository
+        repo = PlaceRepository()
+        pid_to_place: dict[str, dict] = {}
+        for p in repo.list_attractions() + repo.list_hotels() + repo.list_restaurants():
+            pd = p.to_dict()
+            pid = pd.get("place_id", "")
+            if pid:
+                pid_to_place[pid] = pd
+
+        # 先导出为 dict，注入 _place
+        it_dict = it.model_dump(mode="json")
+        for day_data in it_dict.get("days", []):
+            for item in day_data.get("items", []):
+                pid = item.get("place_id") or ""
+                place = pid_to_place.get(pid)
+                if place:
+                    item["_place"] = place
+                    if not item.get("note") or item["note"].startswith("已替换") or "alt_" in pid:
+                        item["note"] = place.get("name", item.get("note") or "")
+
+        # 重新解析（_place 依然在 dict 上，model_dump 保留它）
+        # 但 Itinerary(**it_dict) 会丢弃 _place…所以不重新解析，
+        # 直接用 _enriched_dict 在调用方手动合并。
+        # 把 enriched items 写回原 Itinerary 对象
+        from backend.schemas.itinerary import Itinerary
+        new_it = Itinerary(**it_dict)
+        it.itinerary_id = new_it.itinerary_id
+        it.session_id = new_it.session_id
+        it.version = new_it.version
+        it.parent_version = new_it.parent_version
+        it.days = new_it.days
+        it.hotel_place_id = new_it.hotel_place_id
+        it.total_cost = new_it.total_cost
+        it.status = new_it.status
+        # _place 已通过 model_dump(mode="json") 保留在 item dict 中
+        # 但因为 ItineraryItem 重构丢失了，存到 _enriched_dict 上
+        object.__setattr__(it, "_enriched_dict", it_dict)
+    except Exception:
+        pass
+
+
+def model_dump_with_places(it: Itinerary) -> dict:
+    """与 model_dump(mode="json") 相同，但包含 _place 引用。"""
+    enriched = getattr(it, "_enriched_dict", None)
+    if enriched:
+        return enriched
+    # 未 enrich 过，手动注入
+    d = it.model_dump(mode="json")
+    _inject_places_into_dict(d)
+    return d
+
+
+def _inject_places_into_dict(itinerary_dict: dict) -> None:
+    """向行程 dict 的每个 item 注入 _place 引用。"""
+    try:
+        from backend.app.repositories import PlaceRepository
+        repo = PlaceRepository()
+        pid_to_place: dict[str, dict] = {}
+        for p in repo.list_attractions() + repo.list_hotels() + repo.list_restaurants():
+            pd = p.to_dict()
+            pid = pd.get("place_id", "")
+            if pid:
+                pid_to_place[pid] = pd
+        for day_data in itinerary_dict.get("days", []):
+            for item in day_data.get("items", []):
+                pid = item.get("place_id") or ""
+                place = pid_to_place.get(pid)
+                if place:
+                    item["_place"] = place
+                    if not item.get("note") or item["note"].startswith("已替换") or "alt_" in pid:
+                        item["note"] = place.get("name", item.get("note") or "")
+    except Exception:
+        pass
