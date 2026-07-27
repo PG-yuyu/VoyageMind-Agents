@@ -940,51 +940,39 @@ textarea {
 }
 
 .progress-steps {
-  position: relative;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
   margin-top: 18px;
-}
-
-.progress-rail {
-  position: absolute;
-  top: 27px;
-  right: 56px;
-  left: 56px;
-  height: 4px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #e7edf6;
-}
-
-.progress-rail i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #4f65ff, #14b8a6);
-  transition: width 0.45s ease;
 }
 
 .progress-step {
   position: relative;
-  z-index: 1;
   display: flex;
-  min-height: 102px;
+  min-height: 112px;
   gap: 14px;
-  padding: 18px;
+  overflow: hidden;
+  padding: 18px 18px 17px;
   border: 1px solid #e2eaf5;
   border-radius: 22px;
-  background: rgba(248, 251, 255, 0.92);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  background: rgba(248, 251, 255, 0.96);
+  box-shadow: 0 12px 30px rgba(31, 41, 55, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.78);
   transition: transform 0.25s ease, border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+
+.progress-step::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: #e7edf6;
+  content: "";
 }
 
 .progress-step > span {
   display: grid;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
   place-items: center;
   margin-top: 0;
   border: 1px solid #d9e3f1;
@@ -997,7 +985,11 @@ textarea {
 
 .progress-step.done {
   border-color: rgba(20, 184, 166, 0.24);
-  background: linear-gradient(180deg, rgba(236, 253, 245, 0.88), rgba(248, 251, 255, 0.96));
+  background: linear-gradient(180deg, rgba(236, 253, 245, 0.86), rgba(248, 251, 255, 0.98));
+}
+
+.progress-step.done::before {
+  background: #14b8a6;
 }
 
 .progress-step.done > span {
@@ -1021,8 +1013,12 @@ textarea {
 .progress-step.active {
   transform: translateY(-2px);
   border-color: rgba(79, 101, 255, 0.34);
-  background: linear-gradient(135deg, rgba(238, 242, 255, 0.98), rgba(236, 253, 245, 0.92));
+  background: linear-gradient(135deg, rgba(238, 242, 255, 0.98), rgba(255, 255, 255, 0.96));
   box-shadow: 0 18px 36px rgba(79, 101, 255, 0.12);
+}
+
+.progress-step.active::before {
+  background: linear-gradient(90deg, #4f65ff, #14b8a6);
 }
 
 .progress-step.active > span {
@@ -1043,7 +1039,7 @@ textarea {
   margin: 7px 0 0;
   color: #6b788a;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
 @keyframes progress-pulse {
@@ -2784,10 +2780,6 @@ textarea {
   .qa-question-grid,
   .evidence-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .progress-rail {
-    display: none;
   }
 }
 
