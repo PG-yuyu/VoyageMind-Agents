@@ -2110,6 +2110,7 @@ async function submitAuth() {
           <button class="primary" :disabled="mapLoading" @click="loadMapResources">{{ mapLoading ? '加载中' : '刷新地图资源' }}</button>
         </div>
         <TripMap
+          :session-id="sessionId || 'demo_session'"
           :resources="mapResources"
           :routes="recommendedRoutes"
           :loading="mapLoading"

@@ -114,6 +114,10 @@
               <span>{{ message.role === 'user' ? '你' : 'AI 导游' }}</span>
               <p>{{ message.content }}</p>
             </article>
+            <article v-if="guideLoading" class="guide-message assistant">
+              <span>AI 导游</span>
+              <p class="guide-thinking"><i></i><i></i><i></i></p>
+            </article>
           </div>
 
           <div class="guide-panel__quick">
@@ -132,7 +136,7 @@
               rows="3"
               placeholder="针对当前景点或路线提问，比如：这里适合拍照吗？附近有什么吃的？"
             ></textarea>
-            <button type="submit">提问</button>
+            <button type="submit" :disabled="guideLoading">{{ guideLoading ? '回答中' : '提问' }}</button>
           </form>
         </section>
       </aside>
@@ -146,6 +150,7 @@ import MapInfoWindow from './MapInfoWindow.vue'
 import MapMarker from './MapMarker.vue'
 import PlaceList from './PlaceList.vue'
 import RoutePolyline from './RoutePolyline.vue'
+import { streamGuideChat } from '../api'
 import { createMapStore } from '../stores/mapStore'
 import { loadAmapJsApi } from '../utils/amapLoader'
 
@@ -165,6 +170,10 @@ const props = defineProps({
   routes: {
     type: Array,
     default: () => []
+  },
+  sessionId: {
+    type: String,
+    default: 'demo_session'
   }
 })
 
@@ -181,6 +190,7 @@ const guideTarget = ref(null)
 const guideTargetKind = ref('place')
 const guideInput = ref('')
 const guideMessages = ref([])
+const guideLoading = ref(false)
 let guideMessageId = 0
 let amapApi = null
 let amapMarkers = []
@@ -359,27 +369,50 @@ function setGuideTarget(target, kind) {
   guideTarget.value = target
   guideTargetKind.value = kind
   guideInput.value = ''
-  guideMessages.value = [{
-    id: ++guideMessageId,
-    role: 'assistant',
-    content: kind === 'route' ? buildRouteIntro(target) : buildPlaceIntro(target)
-  }]
+  guideMessages.value = []
+  requestGuideAnswer('请先用导游身份介绍这里。')
 }
 
-function sendGuideQuestion() {
+async function sendGuideQuestion() {
   const question = guideInput.value.trim()
-  if (!question) return
+  if (!question || guideLoading.value) return
   guideMessages.value.push({
     id: ++guideMessageId,
     role: 'user',
     content: question
   })
   guideInput.value = ''
-  guideMessages.value.push({
+  await requestGuideAnswer(question)
+}
+
+async function requestGuideAnswer(message) {
+  if (!guideTarget.value) return
+  guideLoading.value = true
+  const assistantMessage = {
     id: ++guideMessageId,
     role: 'assistant',
-    content: '这里先展示前端效果：后端接入后，我会结合当前地点、路线、资料库和你的行程上下文，用 AI 导游身份实时回答这个问题。'
-  })
+    content: ''
+  }
+  guideMessages.value.push(assistantMessage)
+  try {
+    await streamGuideChat({
+      session_id: props.sessionId || 'demo_session',
+      target_type: guideTargetKind.value,
+      target: guideTarget.value,
+      message,
+      history: guideMessages.value
+        .filter((item) => item.id !== assistantMessage.id)
+        .map((item) => ({ role: item.role, content: item.content }))
+    }, (_chunk, fullText) => {
+      assistantMessage.content = fullText
+    })
+  } catch (error) {
+    assistantMessage.content = guideTargetKind.value === 'route'
+      ? buildRouteIntro(guideTarget.value)
+      : buildPlaceIntro(guideTarget.value)
+  } finally {
+    guideLoading.value = false
+  }
 }
 
 function buildPlaceIntro(resource) {
@@ -1018,6 +1051,43 @@ function clamp(value, min, max) {
   line-height: 1.65;
 }
 
+.guide-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  min-width: 66px;
+  min-height: 42px;
+}
+
+.guide-thinking i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #4f65ff;
+  animation: guide-pulse 0.9s ease-in-out infinite;
+}
+
+.guide-thinking i:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.guide-thinking i:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+@keyframes guide-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
 .guide-message.user {
   justify-self: end;
 }
@@ -1079,6 +1149,11 @@ function clamp(value, min, max) {
   background: linear-gradient(135deg, #4f65ff, #14b8a6);
   color: #fff;
   font-weight: 950;
+}
+
+.guide-panel__input button:disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 
 :deep(.amap-resource-marker) {
