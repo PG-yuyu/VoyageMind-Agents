@@ -105,6 +105,10 @@ class ChatbotService:
         return parsed if parsed is not None else fallback
 
     def summarize_agent_reply(self, message: str, context: dict) -> str:
+        branch = context.get("branch")
+        if branch in {"create_trip", "modify_trip"}:
+            return self._fallback_reply(context)
+
         if not self.available or self.engine is None:
             return self._fallback_reply(context)
 
@@ -164,6 +168,35 @@ class ChatbotService:
         return value if isinstance(value, dict) else None
 
     def _fallback_reply(self, context: dict) -> str:
+        branch = context.get("branch")
+        if branch == "create_trip":
+            requirements = (context.get("requirements") or {}).get("requirements") or {}
+            itinerary = context.get("itinerary") or {}
+            days = itinerary.get("days") or []
+            city = requirements.get("city") or "天津"
+            day_count = requirements.get("days") or len(days) or "多"
+            route_count = len(context.get("routes") or [])
+            if days:
+                return (
+                    f"已生成{city}{day_count}日自由行方案，包含{len(days)}天行程、"
+                    f"{route_count}条路线参考和预算/步行强度估算。你可以到「我的行程」查看每日安排，"
+                    "也可以继续告诉我天气、体力、餐饮或时间变化来智能调整。"
+                )
+            return (
+                f"已完成{city}旅行需求解析和地点推荐，但完整每日行程还在等待规划模块返回。"
+                "你可以先查看推荐地点和地图路线。"
+            )
+
+        if branch == "modify_trip":
+            result = context.get("modification_result") or {}
+            affected_days = result.get("affected_days") or []
+            changes = result.get("changes") or []
+            day_text = f"第{','.join(str(day) for day in affected_days)}天" if affected_days else "当前行程"
+            return (
+                f"已根据你的要求调整{day_text}，本次更新包含{len(changes)}处变化。"
+                "你可以在「我的行程」里查看新版安排。"
+            )
+
         intent = context.get("intent", {}).get("intent")
         missing = context.get("requirements", {}).get("missing_fields", [])
         if missing:
