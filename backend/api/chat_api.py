@@ -90,6 +90,15 @@ async def stream_chat_message(body: ChatRequest):
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
 
 
+@router.post("/chat/messages/progress")
+async def stream_plan_progress(body: ChatRequest):
+    async def generate():
+        async for chunk in workflow.stream_plan_progress(body.session_id, body.message):
+            yield chunk
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson; charset=utf-8")
+
+
 @router.post("/intent/detect")
 def detect_intent(body: IntentDetectRequest) -> ApiResponse:
     store.ensure_session(body.session_id)

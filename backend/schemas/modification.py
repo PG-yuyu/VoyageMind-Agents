@@ -23,3 +23,6 @@ class ModificationRequest(BaseModel):
     action: str = Field(..., description="修改动作, 如 change_to_indoor / replace_attraction")
     new_constraints: dict[str, Any] = Field(default_factory=dict)
     original_text: str | None = Field(None, description="用户原始输入")
+    current_itinerary: dict[str, Any] | None = Field(
+        None, description="当前完整行程 dict，传入后跳过版本库查询"
+    )

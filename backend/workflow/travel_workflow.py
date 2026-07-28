@@ -30,3 +30,7 @@ class TravelWorkflow:
     async def stream_message(self, session_id: str, message: str):
         async for chunk in self.coordinator_agent.stream_run(session_id, message):
             yield chunk
+
+    async def stream_plan_progress(self, session_id: str, message: str):
+        async for chunk in self.coordinator_agent.run_with_progress(session_id, message):
+            yield chunk

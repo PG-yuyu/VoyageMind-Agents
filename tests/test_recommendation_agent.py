@@ -386,6 +386,6 @@ def test_recommendation_agent_rejects_invalid_context() -> None:
 def test_candidate_comparison_prompt_declares_llm_boundary() -> None:
     """候选比较 Prompt 明确大模型和本地规则边界。"""
 
-    assert "软偏好判断必须由你完成" in CANDIDATE_COMPARISON_PROMPT
-    assert "只能从 candidates 中选择 place_id" in CANDIDATE_COMPARISON_PROMPT
-    assert "不要生成路线、距离、地图标记或交通方案" in CANDIDATE_COMPARISON_PROMPT
+    assert "只从 candidates 中选 place_id" in CANDIDATE_COMPARISON_PROMPT
+    assert "不做行程规划" in CANDIDATE_COMPARISON_PROMPT
+    assert "输出严格 JSON" in CANDIDATE_COMPARISON_PROMPT

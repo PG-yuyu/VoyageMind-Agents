@@ -70,13 +70,13 @@ storage:
 
 # LLM 调用参数（需求 G1 超时与重试）
 llm:
-  timeout: 30
-  max_retries: 3
+  timeout: 120
+  max_retries: 1
 
 # 安全配置（Step 16 新增）
 security:
   max_input_length: 5000        # 用户单次输入最大字符数（超过则提示）
-  context_max_tokens: 4000      # 发送给 LLM 的上下文最大 Token 数（滑动窗口 + Token 计数）
+  context_max_tokens: 16000      # 发送给 LLM 的上下文最大 Token 数
 
 # 会话配置（需求 C7 会话标题自动生成）
 session:

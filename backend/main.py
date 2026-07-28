@@ -15,7 +15,6 @@ from backend.app.api.routes_api import router as route_router
 
 # 成员三行程规划与调整 API
 from backend.api.itinerary_api import router as itinerary_router
-from backend.api.validation_api import router as validation_router
 from backend.api.adjustment_api import router as adjustment_router
 from backend.api.version_api import router as version_router
 
@@ -47,6 +46,5 @@ if recommendation_router is not None:
 
 # 成员三行程规划与调整接口
 app.include_router(itinerary_router)
-app.include_router(validation_router)
 app.include_router(adjustment_router)
 app.include_router(version_router)

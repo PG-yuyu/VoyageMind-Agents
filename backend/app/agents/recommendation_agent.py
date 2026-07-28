@@ -109,28 +109,43 @@ class RecommendationAgent:
     ) -> str:
         """构造候选比较输入，要求模型只返回候选 id。"""
 
+        req = context.requirements
         payload = {
-            "recommendation_context": {
-                "session_id": context.session_id,
-                "requirements": context.requirements.model_dump(),
+            "context": {
+                "city": req.city,
+                "days": req.days,
+                "people": req.people,
+                "total_budget": req.total_budget,
+                "interests": req.interests,
+                "food_preferences": req.food_preferences,
+                "preferred_areas": req.preferred_areas,
+                "avoid_areas": req.avoid_areas,
+                "travel_pace": req.travel_pace,
                 "original_text": context.original_text,
-                "conversation_context": list(context.conversation_context),
-                "explicit_hard_constraints": [
-                    asdict(constraint)
-                    for constraint in context.explicit_hard_constraints
-                ],
                 "semantic_preferences": [
-                    asdict(preference)
-                    for preference in context.semantic_preferences
+                    asdict(p) for p in context.semantic_preferences
                 ],
-                "assumptions": list(context.assumptions),
-                "unresolved_fields": list(context.unresolved_fields),
+                "hard_constraints": [
+                    asdict(c) for c in context.explicit_hard_constraints
+                ],
             },
             "recommendation_policy": asdict(policy),
             "candidates": {
-                "attractions": [place.to_dict() for place in candidates.attractions],
-                "hotels": [place.to_dict() for place in candidates.hotels],
-                "restaurants": [place.to_dict() for place in candidates.restaurants],
+                "attractions": [
+                    {k: v for k, v in place.to_dict().items()
+                     if k in ("place_id", "name", "area", "price", "tags")}
+                    for place in candidates.attractions
+                ],
+                "hotels": [
+                    {k: v for k, v in place.to_dict().items()
+                     if k in ("place_id", "name", "area", "price", "tags")}
+                    for place in candidates.hotels
+                ],
+                "restaurants": [
+                    {k: v for k, v in place.to_dict().items()
+                     if k in ("place_id", "name", "area", "price", "tags")}
+                    for place in candidates.restaurants
+                ],
             },
             "instruction": (
                 "请只返回 selected_place_ids，不要返回完整 Place。"
@@ -238,18 +253,26 @@ class RecommendationAgent:
 
         issues_data = model_output.get("validation_issues", [])
         if not isinstance(issues_data, list):
-            raise ModelDecisionError("大模型 validation_issues 必须是列表")
+            return []  # 非硬约束问题，缺失也不阻断推荐
         issues: list[ValidationIssue] = []
         for item in issues_data:
             if not isinstance(item, dict):
-                raise ModelDecisionError("大模型 validation_issues 包含非法对象")
-            issues.append(
-                ValidationIssue(
-                    field=self._required_str(item, "field"),
-                    message=self._required_str(item, "message"),
-                    level=self._required_str(item, "level"),
+                # LLM 偶尔在数组中混入字符串，跳过即可
+                import logging
+                logging.getLogger(__name__).warning(
+                    "validation_issues 中包含非 dict 元素，已跳过: %s", item
                 )
-            )
+                continue
+            try:
+                issues.append(
+                    ValidationIssue(
+                        field=str(item.get("field", "") or ""),
+                        message=str(item.get("message", "") or ""),
+                        level=str(item.get("level", "warning") or "warning"),
+                    )
+                )
+            except Exception:
+                continue
         return issues
 
     def _reject_step_boundary_fields(self, model_output: dict[str, Any]) -> None:

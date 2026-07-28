@@ -115,6 +115,7 @@ class AdjustmentAgent:
         target_item_id = req.get("target_item_id")
         new_constraints = req.get("new_constraints", {})
         original_text = req.get("original_text", "")
+        current_itinerary_dict = req.get("current_itinerary")
 
         trace: list[dict] = []
         trace.append({
@@ -126,23 +127,68 @@ class AdjustmentAgent:
         })
 
         # ── 1. 获取当前行程 ────────────────────────────────────────
-        old_itinerary = get_itinerary(itinerary_id, base_version)
+        old_itinerary = None
+        old_dict = None
+
+        # 优先使用前端直接传入的行程（绕过版本库）
+        logger.warning(
+            "🔍 ADJUST DEBUG: current_itinerary 是否传入=%s, 类型=%s, has_days=%s",
+            current_itinerary_dict is not None,
+            type(current_itinerary_dict).__name__ if current_itinerary_dict is not None else "N/A",
+            bool(current_itinerary_dict.get("days")) if isinstance(current_itinerary_dict, dict) else False,
+        )
+        if isinstance(current_itinerary_dict, dict) and current_itinerary_dict.get("days"):
+            old_dict = current_itinerary_dict
+            try:
+                from backend.schemas.itinerary import Itinerary
+                old_itinerary = Itinerary(**old_dict)
+                logger.warning(
+                    "🔍 ADJUST DEBUG: 使用前端直传行程 id=%s, days=%d, 第1天items=%d",
+                    old_dict.get("itinerary_id", "?"),
+                    len(old_dict.get("days", [])),
+                    len(old_dict.get("days", [{}])[0].get("items", [])) if old_dict.get("days") else 0,
+                )
+            except Exception as _parse_exc:
+                logger.warning("🔍 ADJUST DEBUG: 前端传入行程解析失败 (%s)，回退到版本库查询", _parse_exc)
+
+        # 降级：版本库查询
         if old_itinerary is None:
+            old_itinerary = get_itinerary(itinerary_id, base_version)
+            if old_itinerary is not None:
+                old_dict = old_itinerary.model_dump()
+
+        if old_itinerary is None or old_dict is None:
             return {
-                "error": f"行程 {itinerary_id} 版本 {base_version} 不存在",
+                "error": f"行程 {itinerary_id} 不存在且未传入 current_itinerary",
                 "agent_trace": trace,
             }
 
-        old_dict = old_itinerary.model_dump()
+        # ── 2. 解析目标项 + 获取替代资源 ──────────────────────────
+        # 如果前端没传 target_item_id，从用户文本中匹配行程项
+        resolved_place_id: str | None = None
+        if not target_item_id:
+            logger.warning(
+                "🔍 ADJUST DEBUG: 开始解析目标项 — action=%s, original_text=%s, days=%d",
+                action, original_text, len(old_dict.get("days", [])),
+            )
+            target_item_id, resolved_place_id = _resolve_target_item(
+                old_dict, original_text, action,
+            )
+            logger.warning(
+                "🔍 ADJUST DEBUG: 解析结果 — item_id=%s, place_id=%s",
+                target_item_id, resolved_place_id,
+            )
+        else:
+            # 前端传了 item_id，查找对应的 place_id
+            resolved_place_id = _find_place_id_by_item(old_dict, target_item_id)
 
-        # ── 2. 获取替代资源（如需要） ──────────────────────────────
         replacement_places = []
         if self._fetch_alternatives and action in (
             "replace_attraction", "replace_restaurant", "change_to_indoor",
         ):
             try:
                 alt = self._fetch_alternatives(
-                    original_place_id=target_item_id,
+                    original_place_id=resolved_place_id or target_item_id,
                     constraints=new_constraints,
                 )
                 replacement_places = alt or []
@@ -167,7 +213,7 @@ class AdjustmentAgent:
 
         cloned_dict = cloned.model_dump(mode="json")
 
-        # 锁定全部，然后解锁受影响的天
+        # 锁定全部，然后解锁受影响的天（LLM 需要调整整天的时序）
         lock_items_except(cloned, except_ids=[])
         if target_day:
             affected_ids = [it.get("item_id", "") for it in _day_items(cloned_dict, target_day)]
@@ -182,12 +228,11 @@ class AdjustmentAgent:
                 else:
                     unlocked_items.append(item.get("item_id", ""))
 
-        # ── 4. LLM 局部重规划 ──────────────────────────────────────
+        # ── 4. 大模型局部重规划 ──────────────────────────────────
         trace.append({
-            "step": 3,
-            "agent": "adjustment_agent",
+            "step": 3, "agent": "adjustment_agent",
             "action": "local_replan",
-            "summary": f"受影响天: {target_day}",
+            "summary": f"目标: {target_item_id}",
             "status": "in_progress",
         })
 
@@ -204,258 +249,134 @@ class AdjustmentAgent:
             replacement_routes="[]",
         )
 
+        # 优先大模型，失败则降级
+        replan_days = []
+        replan_notes = []
+        affected_days_set: set[int] = set()
+        llm_used = False
+        llm_raw = ""
+
         try:
             raw = self._llm(prompt)
-            replan_result = _parse_json(raw)
-            # 记录 LLM 返回摘要到 trace
-            days_count = len(replan_result.get("days", []))
-            notes = replan_result.get("replan_notes", [])
-            # 记录前 500 字符原始返回，便于调试
-            raw_preview = raw[:500]
-            trace.append({
-                "step": 4,
-                "agent": "adjustment_agent",
-                "action": "llm_success",
-                "summary": f"LLM 返回 {days_count} 天, notes: {notes[:3]}",
-                "detail": raw_preview,
-                "status": "success",
-            })
-            logger.info(
-                "LLM 重规划成功: %d 天, notes=%s\n---LLM返回(raw)---\n%s\n---",
-                days_count, notes[:3], raw_preview,
-            )
-        except Exception as exc:
-            logger.error("局部重规划 LLM 调用失败: %s，降级到 Demo LLM", exc)
-            trace.append({
-                "step": 4,
-                "agent": "adjustment_agent",
-                "action": "llm_failed_fallback_demo",
-                "summary": f"LLM 调用失败, 使用 Demo LLM 降级: {exc}",
-                "status": "warning",
-            })
-            # ── 降级到 _demo_llm ──────────────────────────────────
-            try:
-                raw = _demo_llm(prompt)
-                replan_result = _parse_json(raw)
-                logger.info("Demo LLM 降级成功")
-            except Exception as fallback_exc:
-                logger.error("Demo LLM 降级也失败: %s", fallback_exc)
-                return {
-                    "error": f"局部重规划失败（LLM + 降级均不可用）: {exc}",
-                    "itinerary": old_dict,
-                    "agent_trace": trace,
-                }
+            llm_raw = raw[:500]
+            result = _parse_json(raw)
+            replan_days = result.get("days", [])
+            replan_notes = result.get("replan_notes", [])
+            llm_used = True
+        except Exception:
+            pass
 
-        # ── 5. 合并重规划结果 ──────────────────────────────────────
-        affected_days_set: set[int] = set()
-        replan_days = replan_result.get("days", [])
-        # 如果 LLM 返回了有效 JSON 但没有实际修改任何天，自动降级
-        if not replan_days:
-            logger.warning("LLM 返回空 days，降级到 Demo LLM")
-            trace.append({
-                "step": 4,
-                "agent": "adjustment_agent",
-                "action": "llm_empty_fallback_demo",
-                "summary": "LLM 返回空数据，使用 Demo LLM 降级",
-                "status": "warning",
-            })
+        # 大模型失败或产出明显错误 → 降级
+        if not llm_used or not replan_days:
+            logger.info("大模型不可用，降级到规则引擎")
             try:
-                raw = _demo_llm(prompt)
-                replan_result = _parse_json(raw)
-                replan_days = replan_result.get("days", [])
-            except Exception as fallback_exc:
-                logger.error("Demo LLM 降级也失败: %s", fallback_exc)
+                raw = _demo_llm(prompt, alt_places=replacement_places)
+                result = _parse_json(raw)
+                replan_days = result.get("days", [])
+                replan_notes = result.get("replan_notes", [])
+                llm_used = False
+            except Exception as e:
+                return {"error": f"局部重规划失败: {e}", "itinerary": old_dict, "agent_trace": trace}
 
+        trace.append({
+            "step": 4, "agent": "adjustment_agent",
+            "action": "llm_success" if llm_used else "demo_fallback",
+            "summary": f"{'LLM' if llm_used else 'Demo'} 返回 {len(replan_days)} 天: {replan_notes[:3]}",
+            "detail": llm_raw,
+            "status": "success",
+        })
+
+        # ── 5. 质量验证 + 合并 ───────────────────────────────────
+        # 大模型产出：验证非目标项是否被误改，误改则回退
+        # demo 产出：直接合并（demo 已保证只改目标项）
         for rday in replan_days:
             day_num = rday.get("day")
             if not day_num:
                 continue
             affected_days_set.add(day_num)
-            # 替换对应天的 items
+
+            if not target_item_id:
+                # 无法确定目标项时，拒绝修改（安全优先）
+                logger.warning("未找到目标项，拒绝修改")
+                trace.append({"step": 35, "action": "no_target", "summary": "未找到目标项", "status": "error"})
+                continue  # 跳过此天，不合并
+
+            # 保护非目标项（无论 LLM 还是 Demo 都需要）
+                for orig_day in old_dict.get("days", []):
+                    if orig_day.get("day") == day_num:
+                        orig_by_id = {it.get("item_id",""): dict(it) for it in orig_day.get("items",[]) if it.get("item_id")}
+                        validated = []
+                        kept_ids = set()
+                        for item in rday.get("items", []):
+                            iid = item.get("item_id") or ""
+                            orig = orig_by_id.get(iid)
+                            if not iid:
+                                continue  # 丢弃无 ID 的幻觉项
+                            if iid == target_item_id:
+                                # 目标项：保留大模型的修改，但补全 place_id（大模型可能只改 note）
+                                if item.get("place_id") == orig.get("place_id") and replacement_places:
+                                    alt = replacement_places[0]
+                                    item["place_id"] = alt.get("place_id", item["place_id"])
+                                    item["_place"] = alt
+                                validated.append(item)
+                            else:
+                                # 非目标项：完整保留原始值
+                                validated.append(orig)
+                            kept_ids.add(iid)
+                        # 补回遗漏的原始项
+                        for iid, orig in orig_by_id.items():
+                            if iid not in kept_ids:
+                                validated.append(orig)
+                        rday["items"] = validated
+                        break
+
+            # 合并到 cloned_dict
             for orig_day in cloned_dict.get("days", []):
-                if orig_day.get("day") == day_num and "items" in rday:
-                    # 保留被锁定的 item（LLM 可能误改）
-                    orig_items = orig_day.get("items", [])
-                    locked_map = {
-                        it["item_id"]: it
-                        for it in orig_items if it.get("locked") and it.get("item_id")
-                    }
-                    new_items = rday["items"]
-                    merged = []
-                    seen_ids: set[str] = set()
-                    for item in new_items:
-                        iid = item.get("item_id") or ""
-                        if iid in locked_map:
-                            merged.append(locked_map[iid])
-                        else:
-                            merged.append(item)
-                        if iid:
-                            seen_ids.add(iid)
-                    # 补上 locked 但 LLM 没返回的项
-                    for iid, locked_item in locked_map.items():
-                        if iid not in seen_ids:
-                            merged.append(locked_item)
-                    orig_day["items"] = merged
+                if orig_day.get("day") == day_num:
+                    orig_day["items"] = rday["items"]
+                    break
 
-        # ── 5.25 关键词过滤：只保留匹配用户意图的修改 ──────
-        kw = _extract_keywords(original_text, action)
-        if kw:
-            logger.info("关键词过滤: action=%s, keywords=%s", action, kw)
-            for day_num in sorted(affected_days_set):
-                orig_items = _day_items(old_dict, day_num)
-                new_items = _day_items(cloned_dict, day_num)
-                # 为每个新 item 建索引
-                orig_by_id = {it.get("item_id", ""): it for it in orig_items}
-                new_by_id = {it.get("item_id", ""): it for it in new_items}
-                for iid, new_it in new_by_id.items():
-                    orig_it = orig_by_id.get(iid)
-                    if not orig_it:
-                        continue
-                    # 检查是否有实际变化
-                    pid_changed = new_it.get("place_id") != orig_it.get("place_id")
-                    note_changed = (new_it.get("note") or "") != (orig_it.get("note") or "")
-                    if pid_changed or note_changed:
-                        # 检查是否匹配关键词
-                        place_ref = new_it.get("_place") or orig_it.get("_place") or {}
-                        search_text = f"{place_ref.get('name', '')} {orig_it.get('note', '')} {orig_it.get('place_id', '')}".lower()
-                        if not _match_keywords(search_text, kw):
-                            # 不匹配 → 回退到原始值
-                            logger.info("回退非匹配项: %s (search_text=%s)", iid, search_text[:80])
-                            new_it["place_id"] = orig_it.get("place_id")
-                            new_it["note"] = orig_it.get("note")
-                            new_it["total_cost"] = orig_it.get("total_cost")
-            trace.append({
-                "step": 38,
-                "agent": "adjustment_agent",
-                "action": "keyword_filter",
-                "summary": f"关键词过滤: {kw}",
-                "status": "success",
-            })
-
-        # ── 5.3 检查 LLM 是否真正修改了数据 ────────────────────
-        # 比较受影响天的 place_id，如果全部相同则说明 LLM 没做修改
-        llm_made_changes = False
-        for day_num in sorted(affected_days_set):
-            orig_items = _day_items(old_dict, day_num)
-            new_items = _day_items(cloned_dict, day_num)
-            orig_pids = [it.get("place_id", "") for it in orig_items]
-            new_pids = [it.get("place_id", "") for it in new_items]
-            orig_notes = [it.get("note", "") or "" for it in orig_items]
-            new_notes = [it.get("note", "") or "" for it in new_items]
-            if orig_pids != new_pids or orig_notes != new_notes:
-                llm_made_changes = True
-                break
-
-        if not llm_made_changes and affected_days_set:
-            logger.warning("LLM 返回了未修改的数据，降级到 Demo LLM")
-            trace.append({
-                "step": 44,
-                "agent": "adjustment_agent",
-                "action": "llm_no_changes_fallback_demo",
-                "summary": "LLM 未做实际修改，使用 Demo LLM 降级",
-                "status": "warning",
-            })
-            try:
-                raw = _demo_llm(prompt)
-                replan_result = _parse_json(raw)
-                replan_days = replan_result.get("days", [])
-                # 重新合并
-                affected_days_set.clear()
-                for rday in replan_days:
-                    day_num = rday.get("day")
-                    if not day_num:
-                        continue
-                    affected_days_set.add(day_num)
-                    for orig_day in cloned_dict.get("days", []):
-                        if orig_day.get("day") == day_num and "items" in rday:
-                            orig_items = orig_day.get("items", [])
-                            locked_map = {
-                                it["item_id"]: it
-                                for it in orig_items if it.get("locked") and it.get("item_id")
-                            }
-                            merged = []
-                            seen_ids = set()
-                            for item in rday["items"]:
-                                iid = item.get("item_id") or ""
-                                if iid in locked_map:
-                                    merged.append(locked_map[iid])
-                                else:
-                                    merged.append(item)
-                                if iid:
-                                    seen_ids.add(iid)
-                            for iid, lit in locked_map.items():
-                                if iid not in seen_ids:
-                                    merged.append(lit)
-                            orig_day["items"] = merged
-            except Exception as fallback_exc:
-                logger.error("Demo LLM 降级也失败: %s", fallback_exc)
-
-        # ── 5.5 补全新 items 的 item_id ──────────────────────────
-        for orig_day in cloned_dict.get("days", []):
-            if orig_day.get("day") not in affected_days_set:
-                continue
-            existing = set()
-            for item in orig_day.get("items", []):
-                if item.get("item_id"):
-                    existing.add(item["item_id"])
-            for idx, item in enumerate(orig_day.get("items", [])):
-                if not item.get("item_id") or item["item_id"].endswith("_new"):
-                    iid = f"day{orig_day['day']}_item_{idx:03d}_{uuid.uuid4().hex[:4]}"
-                    while iid in existing:
-                        iid = f"day{orig_day['day']}_item_{idx:03d}_{uuid.uuid4().hex[:4]}"
-                    item["item_id"] = iid
-                    existing.add(iid)
-
-        # ── 5.6 将 merged 写回 Itinerary 对象（确保保存时一致） ──
+        # ── 6. 重建 Itinerary 对象 + 保存 + 返回 ──────────────────
         try:
             cloned_dict_obj = cloned.model_dump(mode="json")
-            # 仅更新受影响天的 items
             for orig_day in cloned_dict_obj.get("days", []):
                 if orig_day.get("day") in affected_days_set:
-                    for merged_day in cloned_dict.get("days", []):
-                        if merged_day.get("day") == orig_day["day"]:
-                            orig_day["items"] = merged_day["items"]
+                    for src_day in cloned_dict.get("days", []):
+                        if src_day.get("day") == orig_day["day"]:
+                            orig_day["items"] = src_day["items"]
                             break
-            # 反序列化回 Itinerary 对象
             from backend.schemas.itinerary import Itinerary
             cloned = Itinerary(**cloned_dict_obj)
         except Exception as exc:
             logger.warning("同步 Itinerary 对象失败: %s", exc)
 
-        # ── 6. 重新计算预算 ─────────────────────────────────────────
         try:
             budget = calculate_budget(cloned_dict, requirements or {}).model_dump()
-        except Exception as exc:
-            logger.warning("预算计算失败: %s", exc)
+        except Exception:
             budget = None
 
-        # ── 7. 硬约束校验 ──────────────────────────────────────────
         if places:
             enrich_items_with_places(cloned_dict, places)
         evaluation = validate_hard_constraints(cloned_dict, requirements or {})
 
-        # ── 8. 保存新版本 ───────────────────────────────────────────
         try:
             cloned.version = base_version + 1
             cloned.parent_version = base_version
             saved = save_version(cloned)
-        except Exception as exc:
-            logger.warning("保存版本失败: %s", exc)
+        except Exception:
             saved = cloned
 
-        # ── 9. 计算 diff ────────────────────────────────────────────
         diff = diff_versions(itinerary_id, base_version, saved.version)
 
         trace.append({
-            "step": 5,
-            "agent": "adjustment_agent",
+            "step": 5, "agent": "adjustment_agent",
             "action": "save_version",
             "summary": f"保存版本 {saved.version}",
             "status": "success",
         })
 
-        # 用 Itinerary 对象的 model_dump（与存储一致的格式）
-        final_itinerary = cloned.model_dump(mode="json")
+        from backend.services.version_service import model_dump_with_places
+        final_itinerary = model_dump_with_places(cloned)
 
         return {
             "itinerary": final_itinerary,
@@ -511,11 +432,15 @@ def _day_items(itinerary: dict, day_num: int) -> list[dict]:
     return []
 
 
-def _demo_llm(prompt: str) -> str:
+def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
     """开发用占位 LLM 调用 — 无 API Key 时的自动降级方案。
 
     会解析 prompt 中的行程数据和修改意图，做基本的结构化调整，
     让前后端整条链路可以实际跑通、看到修改效果。
+
+    Args:
+        prompt: LLM prompt 文本
+        alt_places: 替代地点列表（直接传入，比 prompt 解析更可靠）
     """
 
     import re
@@ -608,7 +533,22 @@ def _demo_llm(prompt: str) -> str:
         if orig_text == "（无）":
             orig_text = ""
     keywords = _extract_keywords(orig_text, action)
-    logger.info("Demo LLM 关键词: action=%s, keywords=%s, orig_text=%s", action, keywords, orig_text[:60])
+    # ── 替代资源：优先用参数传入的，否则从 prompt 解析 ──────────
+    if alt_places is None:
+        alt_places = []
+        alt_m = re.search(
+            r'## 替代资源[^\n]*\n(.*?)(?:\n\s*##\s*可用路线|\n\s*##\s*必须遵守)',
+            prompt, re.DOTALL,
+        )
+        if alt_m:
+            alt_raw = alt_m.group(1).strip()
+            if alt_raw and alt_raw != "[]":
+                try:
+                    alt_places = json.loads(alt_raw)
+                except json.JSONDecodeError:
+                    pass
+    logger.info("Demo LLM: action=%s keywords=%s alt_places=%d orig_text=%s",
+                action, keywords, len(alt_places), orig_text[:60])
     modified_items = []
     change_log = []
 
@@ -646,11 +586,22 @@ def _demo_llm(prompt: str) -> str:
                 it["note"] = "步行强度已降低（Demo LLM）"
                 change_log.append(f"{it.get('item_id','')} 时长压缩")
         elif action == "replace_attraction" and item_type == "attraction":
-            # 替换景点：换个 place_id 并加 note
-            it["place_id"] = f"alt_{place_id}" if place_id else "alt_place_001"
-            it["note"] = f"已替换原{_describe_item(it)}为替代景点，满足用户偏好"
-            it["total_cost"] = max(0, (it.get("total_cost", 0) or 0) - 10)
-            change_log.append(f"{it.get('item_id','')} 替换景点")
+            # 替换景点：优先用推荐服务返回的真实替代地点
+            alt_place = _pick_replacement(alt_places, item_type)
+            if alt_place:
+                it["place_id"] = alt_place.get("place_id", it.get("place_id", ""))
+                it["_place"] = alt_place
+                it["note"] = alt_place.get("name", f"替代{_describe_item(it)}")
+                if alt_place.get("price"):
+                    it["total_cost"] = float(alt_place["price"])
+                change_log.append(
+                    f'{it.get("item_id","")} → {alt_place.get("name","替代景点")}'
+                )
+            else:
+                it["place_id"] = f"alt_{place_id}" if place_id else "alt_place_001"
+                it["note"] = f"已替换原{_describe_item(it)}为替代景点，满足用户偏好"
+                it["total_cost"] = max(0, (it.get("total_cost", 0) or 0) - 10)
+                change_log.append(f'{it.get("item_id","")} 替换景点(无候选)')
         elif action == "change_budget":
             # 调整预算
             if it.get("total_cost", 0) > 50:
@@ -699,6 +650,117 @@ def _demo_llm(prompt: str) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+def _pick_replacement(replacement_places: list[dict], item_type: str) -> dict | None:
+    """从替代资源列表中选一个同类型的地点。"""
+    candidates = [
+        p for p in replacement_places
+        if isinstance(p, dict) and p.get("place_type") == item_type
+    ]
+    if not candidates:
+        candidates = [p for p in replacement_places if isinstance(p, dict)]
+    return candidates[0] if candidates else None
+
+
+def _resolve_target_item(
+    itinerary: dict, original_text: str, action: str,
+) -> tuple[str | None, str | None]:
+    """从用户文本中解析目标行程项 (item_id, place_id)。
+
+    在没有 target_item_id 时，搜索所有行程项的名称/note，
+    找到与用户描述最匹配的那个。
+    """
+    if not original_text:
+        return None, None
+    keywords = _extract_keywords(original_text, action)
+    if not keywords:
+        return None, None
+    # 按长度降序：最长关键词最具体
+    keywords.sort(key=len, reverse=True)
+    best_item_id = None
+    best_place_id = None
+    best_score = 0
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    _log.warning("🔍 RESOLVE: keywords=%s, searching %d days", keywords, len(itinerary.get("days", [])))
+    for day_data in itinerary.get("days", []):
+        for item in day_data.get("items", []):
+            itype = item.get("item_type", "")
+            if itype not in ("attraction", "lunch", "dinner", "hotel"):
+                continue
+            place = item.get("_place") or {}
+            note = item.get("note") or ""
+            pid = item.get("place_id") or ""
+            # 搜索文本：地名 + note + place_id
+            search_text = f"{place.get('name', '')} {note} {pid}"
+            _log.warning("🔍 RESOLVE: item_type=%s, has_place=%s, place_name=%s, note=%.40s",
+                         itype, bool(item.get("_place")), place.get('name', '-'), note)
+            # 计算匹配分数：最长命中的关键词长度
+            score = 0
+            for kw in keywords:
+                if kw in search_text:
+                    score = max(score, len(kw))
+            if score > best_score:
+                best_score = score
+                best_item_id = item.get("item_id")
+                best_place_id = pid
+    _log.warning("🔍 RESOLVE: 匹配结果 — best_score=%d, item_id=%s, place_id=%s", best_score, best_item_id, best_place_id)
+    return best_item_id, best_place_id
+
+
+def _direct_replace(
+    itinerary: dict,
+    target_day: int | None,
+    target_item_id: str | None,
+    resolved_place_id: str | None,
+    replacement_places: list[dict],
+) -> bool:
+    """直接替换行程项（LLM 不可用时的快速路径）。
+
+    在指定天的 items 中，找到匹配 target_item_id 或 resolved_place_id 的项，
+    用 replacement_places[0] 替换其地点信息。
+    """
+    if not replacement_places:
+        return False
+    alt = replacement_places[0]
+    alt_name = alt.get("name", "替代景点")
+    alt_pid = alt.get("place_id", "")
+
+    target_day = target_day or 1
+    for day_data in itinerary.get("days", []):
+        if day_data.get("day") != target_day:
+            continue
+        for item in day_data.get("items", []):
+            iid = item.get("item_id", "")
+            pid = item.get("place_id", "")
+            itype = item.get("item_type", "")
+            # 匹配条件：item_id 相同，或 place_id 相同，或类型是 attraction
+            if itype != "attraction":
+                continue
+            if target_item_id and iid != target_item_id:
+                if resolved_place_id and pid != resolved_place_id:
+                    continue
+            # 执行替换
+            logger.info("直接替换: %s (%s) → %s (%s)",
+                        item.get("note") or pid, iid, alt_name, alt_pid)
+            item["place_id"] = alt_pid
+            item["_place"] = alt
+            item["note"] = alt_name
+            if alt.get("price") is not None:
+                item["total_cost"] = float(alt["price"])
+                item["cost_per_person"] = float(alt["price"])
+            return True
+    return False
+
+
+def _find_place_id_by_item(itinerary: dict, item_id: str) -> str | None:
+    """根据 item_id 查找对应的 place_id。"""
+    for day_data in itinerary.get("days", []):
+        for item in day_data.get("items", []):
+            if item.get("item_id") == item_id:
+                return item.get("place_id")
+    return None
+
+
 def _extract_keywords(original_text: str, action: str) -> list[str]:
     """从用户输入中提取关键词，用于精确匹配需要修改的行程项。
 
@@ -714,8 +776,11 @@ def _extract_keywords(original_text: str, action: str) -> list[str]:
     if action in ("reduce_walking", "change_budget"):
         return []
 
-    # 常见的否定/替换前缀，去掉后剩下的就是目标关键词
-    prefixes = ["不喜欢", "不想", "不要", "别", "讨厌", "换掉", "换成", "替换", "把", "改成"]
+    # 常见否定/替换前缀（按长度降序，同长时"替换"优先于"换成"避免拆坏"替换成"）
+    prefixes = sorted(
+        ["不喜欢", "不想", "不要", "替换", "换成", "换掉", "改成", "讨厌", "别", "把"],
+        key=lambda x: (-len(x), x),
+    )
     text = original_text
     for p in prefixes:
         text = text.replace(p, " ")
@@ -725,9 +790,9 @@ def _extract_keywords(original_text: str, action: str) -> list[str]:
     for s in suffixes:
         text = text.replace(s, " ")
 
-    # 提取 1-4 字的中文关键词
+    # 提取 2-10 字的中文关键词（覆盖"张学良故居"等 5+ 字地名）
     import re
-    words = re.findall(r"[一-龥]{1,4}", text)
+    words = re.findall(r"[一-龥]{2,10}", text)
 
     # ── 过滤噪音词 ──────────────────────────────────────────
     # 1. 天数/序号类关键词（第X天、一二三...）→ 过滤
@@ -756,11 +821,17 @@ def _extract_keywords(original_text: str, action: str) -> list[str]:
 
 
 def _match_keywords(search_text: str, keywords: list[str]) -> bool:
-    """检查 search_text 是否匹配任意关键词。"""
-    for kw in keywords:
-        if kw in search_text:
-            return True
-    return False
+    """检查 search_text 是否匹配关键词。按长度降序，至少最长的关键词要命中。"""
+    if not keywords:
+        return False
+    # 按长度降序：最具体的关键词优先
+    sorted_kw = sorted(keywords, key=len, reverse=True)
+    # 最长的关键词必须命中（避免"博物"误匹配所有博物馆）
+    if len(sorted_kw) >= 2 and len(sorted_kw[0]) >= 3 and sorted_kw[0] in search_text:
+        return True
+    # 单关键词或短关键词：需要至少一半命中
+    hits = sum(1 for kw in keywords if kw in search_text)
+    return hits >= max(1, len(keywords) // 2)
 
 
 def _describe_item(item: dict) -> str:
@@ -779,6 +850,82 @@ def _describe_item(item: dict) -> str:
     if pid and not pid.startswith("alt_") and not pid.startswith("place_"):
         return pid
     return "行程项"
+
+
+def _inject_place_refs(final_itinerary: dict, source_dict: dict) -> None:
+    """为 final_itinerary 的所有 items 注入 _place 引用。
+
+    model_dump(mode="json") 丢弃了非 schema 字段。从 PlaceRepository
+    按 place_id 查找真实地点数据回注，确保前端能显示名称和坐标。
+    """
+    # 预加载地点索引
+    place_by_id: dict[str, dict] = {}
+    try:
+        from backend.app.repositories import PlaceRepository
+        repo = PlaceRepository()
+        for p in repo.list_attractions() + repo.list_hotels() + repo.list_restaurants():
+            pd = p.to_dict()
+            pid = pd.get("place_id", "")
+            if pid:
+                place_by_id[pid] = pd
+    except Exception:
+        pass
+
+    if not place_by_id:
+        return
+
+    for day_data in final_itinerary.get("days", []):
+        for item in day_data.get("items", []):
+            pid = item.get("place_id") or ""
+            if not pid:
+                continue
+            # 从 PlaceRepository 查找真实地点
+            db_place = place_by_id.get(pid)
+            if db_place:
+                item["_place"] = db_place
+                # 修正 note：如果 note 是虚假描述或替换文本，改用真实地名
+                note = item.get("note") or ""
+                db_name = db_place.get("name", "")
+                if db_name and (
+                    not note
+                    or note.startswith("已替换")
+                    or note.startswith("已调整")
+                    or "alt_" in pid
+                ):
+                    item["note"] = db_name
+                continue
+            # place_id 不在数据库中（可能是 demo LLM 的合成 ID 如 alt_xxx）
+            # 尝试从 source_dict 的对应 item 中恢复原始 _place
+            _recover_from_source(item, source_dict, place_by_id)
+
+
+def _recover_from_source(
+    item: dict, source_dict: dict, place_by_id: dict,
+) -> None:
+    """当 item 的 place_id 是合成 ID 时，从 source 或 note 中恢复真实地点。"""
+    iid = item.get("item_id", "")
+    note = item.get("note") or ""
+    # 尝试 1：从 source 中同 item_id 的项恢复
+    for day_data in source_dict.get("days", []):
+        for src_item in day_data.get("items", []):
+            if src_item.get("item_id") == iid:
+                src_place = src_item.get("_place")
+                if src_place and isinstance(src_place, dict) and src_place.get("place_id"):
+                    src_pid = src_place["place_id"]
+                    if src_pid in place_by_id:
+                        item["_place"] = place_by_id[src_pid]
+                        item["place_id"] = src_pid
+                        item["note"] = place_by_id[src_pid].get("name", note)
+                        return
+    # 尝试 2：从 note 中提取地名，在 place_by_id 中模糊查找
+    if note and len(note) >= 2:
+        for pid, p in place_by_id.items():
+            pname = p.get("name", "")
+            if pname and (note in pname or pname in note):
+                item["_place"] = p
+                item["place_id"] = pid
+                item["note"] = pname
+                return
 
 
 def _shift_time(start_time: str, duration_minutes: int) -> str:
