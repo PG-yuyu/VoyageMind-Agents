@@ -1,3 +1,8 @@
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,12 +18,6 @@ from backend.api.itinerary_api import router as itinerary_router
 from backend.api.adjustment_api import router as adjustment_router
 from backend.api.version_api import router as version_router
 
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ModuleNotFoundError:
-    pass
 
 app = FastAPI(title="行知旅策 - 天津自由行智能规划系统", version="1.0.0")
 

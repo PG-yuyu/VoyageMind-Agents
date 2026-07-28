@@ -141,8 +141,63 @@
                   @pause="stopGuideVoicePlayback(message.audioUrl)"
                 ></audio>
               </button>
-              <p v-else-if="message.content">{{ message.content }}</p>
-              <p v-else class="guide-thinking"><i></i><i></i><i></i></p>
+              <template v-else>
+                <p v-if="message.content">{{ message.content }}</p>
+                <p v-else class="guide-thinking"><i></i><i></i><i></i></p>
+                <div
+                  v-if="message.role === 'assistant' && message.content && !message.isStreaming"
+                  class="guide-tts"
+                  :class="{ ready: message.ttsUrl, playing: guidePlayingVoiceUrl === message.ttsUrl }"
+                >
+                  <header class="guide-tts__head">
+                    <span class="guide-tts__mark"></span>
+                    <strong>语音讲解</strong>
+                    <small>{{ guideTtsStateLabel(message) }}</small>
+                  </header>
+                  <div class="guide-tts__player">
+                    <button
+                      type="button"
+                      class="guide-tts__button"
+                      :class="{ playing: guidePlayingVoiceUrl === message.ttsUrl }"
+                      :disabled="message.ttsLoading"
+                      @click="handleGuideTtsClick(message)"
+                    >
+                      <span class="guide-tts__icon"></span>
+                      <span>{{ guideTtsButtonLabel(message) }}</span>
+                    </button>
+                    <div class="guide-tts__timeline">
+                      <input
+                        type="range"
+                        min="0"
+                        :max="guideTtsDuration(message)"
+                        step="0.1"
+                        :value="guideTtsCurrentTime(message)"
+                        :disabled="!message.ttsUrl || !guideTtsDuration(message)"
+                        @input="seekGuideTts($event, message)"
+                      />
+                      <div class="guide-tts__time">
+                        <span>{{ formatGuideTtsTime(message.ttsCurrentTime) }}</span>
+                        <span>{{ formatGuideTtsTime(message.ttsDuration) }}</span>
+                      </div>
+                    </div>
+                    <audio
+                      v-if="message.ttsUrl"
+                      :src="message.ttsUrl"
+                      :type="message.ttsType || 'audio/mpeg'"
+                      preload="metadata"
+                      data-guide-voice-player="true"
+                      :data-guide-tts-id="message.id"
+                      @loadedmetadata="syncGuideTtsMetadata($event, message)"
+                      @timeupdate="syncGuideTtsProgress($event, message)"
+                      @ended="finishGuideTtsPlayback(message)"
+                      @pause="stopGuideVoicePlayback(message.ttsUrl)"
+                    ></audio>
+                  </div>
+                  <p v-if="message.ttsLoading || message.ttsError" class="guide-tts__status">
+                    {{ message.ttsError || '正在生成导游语音...' }}
+                  </p>
+                </div>
+              </template>
             </article>
           </div>
 
@@ -189,7 +244,7 @@ import MapInfoWindow from './MapInfoWindow.vue'
 import MapMarker from './MapMarker.vue'
 import PlaceList from './PlaceList.vue'
 import RoutePolyline from './RoutePolyline.vue'
-import { streamGuideChat, understandVoice } from '../api'
+import { streamGuideChat, synthesizeGuideVoice, understandVoice } from '../api'
 import { createMapStore } from '../stores/mapStore'
 import { loadAmapJsApi } from '../utils/amapLoader'
 
@@ -384,9 +439,7 @@ function createSmoothTextStream(message, field = 'content') {
   }
 }
 
-function toggleGuideVoicePlayback(event, url) {
-  const audio = event.currentTarget.querySelector('audio')
-  if (!audio) return
+function playGuideAudioElement(audio, url, { restart = false } = {}) {
   if (guidePlayingVoiceUrl.value === url && !audio.paused) {
     audio.pause()
     guidePlayingVoiceUrl.value = ''
@@ -395,14 +448,145 @@ function toggleGuideVoicePlayback(event, url) {
   document.querySelectorAll('audio[data-guide-voice-player="true"]').forEach((item) => {
     if (item !== audio) item.pause()
   })
-  audio.currentTime = 0
+  if (restart || audio.ended) audio.currentTime = 0
   audio.play()
-  guidePlayingVoiceUrl.value = url
+    .then(() => {
+      guidePlayingVoiceUrl.value = url
+    })
+    .catch(() => {
+      guidePlayingVoiceUrl.value = ''
+    })
+}
+
+function toggleGuideVoicePlayback(event, url) {
+  const audio = event.currentTarget.querySelector('audio')
+  if (!audio) return
+  playGuideAudioElement(audio, url, { restart: true })
 }
 
 function stopGuideVoicePlayback(url) {
   if (guidePlayingVoiceUrl.value === url) {
     guidePlayingVoiceUrl.value = ''
+  }
+}
+
+function stopAllGuideVoicePlayback() {
+  document.querySelectorAll('audio[data-guide-voice-player="true"]').forEach((item) => {
+    item.pause()
+  })
+  guidePlayingVoiceUrl.value = ''
+}
+
+function guideTtsButtonLabel(message) {
+  if (message.ttsLoading) return '生成中'
+  if (message.ttsUrl && guidePlayingVoiceUrl.value === message.ttsUrl) return '暂停讲解'
+  if (message.ttsUrl) return '播放讲解'
+  return '生成语音讲解'
+}
+
+function guideTtsStateLabel(message) {
+  if (message.ttsLoading) return '生成中'
+  if (message.ttsError) return '需重试'
+  if (message.ttsUrl && guidePlayingVoiceUrl.value === message.ttsUrl) return '播放中'
+  if (message.ttsUrl) return '已就绪'
+  return '待生成'
+}
+
+function guideTtsDuration(message) {
+  const duration = Number(message.ttsDuration)
+  return Number.isFinite(duration) && duration > 0 ? duration : 0
+}
+
+function guideTtsCurrentTime(message) {
+  const currentTime = Number(message.ttsCurrentTime)
+  return Number.isFinite(currentTime) && currentTime > 0 ? currentTime : 0
+}
+
+function formatGuideTtsTime(value) {
+  const seconds = Math.max(0, Math.floor(Number(value) || 0))
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+function findGuideTtsAudio(message) {
+  return document.querySelector(`audio[data-guide-tts-id="${message.id}"]`)
+}
+
+function syncGuideTtsMetadata(event, message) {
+  const audio = event.currentTarget
+  message.ttsDuration = Number.isFinite(audio.duration) ? audio.duration : 0
+  message.ttsCurrentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0
+}
+
+function syncGuideTtsProgress(event, message) {
+  const audio = event.currentTarget
+  message.ttsCurrentTime = Number.isFinite(audio.currentTime) ? audio.currentTime : 0
+  if (!guideTtsDuration(message) && Number.isFinite(audio.duration)) {
+    message.ttsDuration = audio.duration
+  }
+}
+
+function seekGuideTts(event, message) {
+  const audio = findGuideTtsAudio(message)
+  if (!audio) return
+  const nextTime = Number(event.target.value) || 0
+  audio.currentTime = Math.min(Math.max(nextTime, 0), guideTtsDuration(message) || nextTime)
+  message.ttsCurrentTime = audio.currentTime
+}
+
+function finishGuideTtsPlayback(message) {
+  message.ttsCurrentTime = guideTtsDuration(message)
+  stopGuideVoicePlayback(message.ttsUrl)
+}
+
+function normalizeGuideAudioUrl(url) {
+  if (!url) return ''
+  if (/^(https?:)?\/\//.test(url) || url.startsWith('blob:') || url.startsWith('data:')) {
+    return url
+  }
+  return url.startsWith('/') ? url : `/${url}`
+}
+
+async function handleGuideTtsClick(message) {
+  if (message.ttsUrl) {
+    const audio = findGuideTtsAudio(message)
+    if (audio) playGuideAudioElement(audio, message.ttsUrl)
+    return
+  }
+
+  await generateGuideTts(message)
+  await nextTick()
+  if (message.ttsUrl) {
+    const audio = findGuideTtsAudio(message)
+    if (audio) playGuideAudioElement(audio, message.ttsUrl)
+  }
+}
+
+async function generateGuideTts(message) {
+  const text = (message.content || '').trim()
+  if (!text || message.ttsLoading) return
+
+  message.ttsLoading = true
+  message.ttsError = ''
+  try {
+    const data = await synthesizeGuideVoice({
+      sessionId: props.sessionId || 'demo_session',
+      text,
+      targetType: guideTargetKind.value,
+      targetTitle: guideTitle.value
+    })
+    const audioUrl = normalizeGuideAudioUrl(data.audio_url || data.audioUrl || data.url)
+    if (!audioUrl) {
+      throw new Error('missing audio url')
+    }
+    message.ttsUrl = audioUrl
+    message.ttsType = data.audio_type || data.audioType || 'audio/mpeg'
+    message.ttsCurrentTime = 0
+    message.ttsDuration = 0
+  } catch (error) {
+    message.ttsError = '语音讲解暂时生成失败，请确认后端 TTS 接口已启动。'
+  } finally {
+    message.ttsLoading = false
   }
 }
 
@@ -512,6 +696,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopGuideVoiceInput()
+  stopAllGuideVoicePlayback()
   guideVoiceObjectUrls.forEach((url) => URL.revokeObjectURL(url))
   clearAmapPolylines()
   clearAmapMarkers()
@@ -1484,6 +1669,195 @@ function clamp(value, min, max) {
 .guide-message.user p {
   border-color: #b9c8ff;
   background: #eef3ff;
+}
+
+.guide-tts {
+  display: grid;
+  gap: 10px;
+  width: min(390px, 100%);
+  margin-top: 2px;
+  padding: 12px;
+  border: 1px solid #b9c8ff;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f7faff, #eef3ff);
+  box-shadow: 0 12px 28px rgba(79, 101, 255, 0.13);
+}
+
+.guide-tts.ready {
+  border-color: #9ee2d8;
+  background: linear-gradient(180deg, #f8fbff, #e9fbf7);
+}
+
+.guide-tts.playing {
+  box-shadow: 0 14px 30px rgba(15, 118, 110, 0.18);
+}
+
+.guide-tts__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.guide-tts__mark {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+  background: #4f65ff;
+  box-shadow: 0 8px 16px rgba(79, 101, 255, 0.25);
+}
+
+.guide-tts__mark::before,
+.guide-tts__mark::after {
+  display: block;
+  width: 3px;
+  height: 10px;
+  border-radius: 999px;
+  background: #fff;
+  content: "";
+}
+
+.guide-tts__mark {
+  grid-template-columns: repeat(2, 3px);
+  gap: 3px;
+}
+
+.guide-tts__head strong {
+  min-width: 0;
+  color: #172033;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.guide-tts__head small {
+  margin-left: auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff;
+  color: #4f65ff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.guide-tts__player {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.guide-tts__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 118px;
+  min-height: 42px;
+  justify-content: center;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #4f65ff, #14b8a6);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 950;
+  box-shadow: 0 12px 22px rgba(79, 101, 255, 0.24);
+  cursor: pointer;
+}
+
+.guide-tts__button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.guide-tts__button.playing {
+  background: linear-gradient(135deg, #0f766e, #14b8a6);
+  box-shadow: 0 12px 22px rgba(15, 118, 110, 0.22);
+}
+
+.guide-tts__button span {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.guide-tts__icon {
+  position: relative;
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.guide-tts__icon::before {
+  width: 0;
+  height: 0;
+  margin-left: 2px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid #fff;
+  content: "";
+}
+
+.guide-tts__button.playing .guide-tts__icon::before,
+.guide-tts__button.playing .guide-tts__icon::after {
+  width: 3px;
+  height: 8px;
+  margin: 0;
+  border: 0;
+  background: #fff;
+  content: "";
+}
+
+.guide-tts__button.playing .guide-tts__icon {
+  grid-template-columns: repeat(2, 3px);
+  gap: 2px;
+}
+
+.guide-tts__timeline {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.guide-tts__timeline input[type="range"] {
+  width: 100%;
+  height: 6px;
+  margin: 0;
+  accent-color: #0f766e;
+  cursor: pointer;
+}
+
+.guide-tts__timeline input[type="range"]:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.guide-tts__time {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #5b687b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+}
+
+.guide-tts__status {
+  margin: -2px 0 0;
+  color: #d9364f;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.guide-tts audio {
+  display: none;
 }
 
 .guide-voice-bubble {

@@ -163,6 +163,37 @@ export async function understandVoice({ sessionId, scene, audioBlob, clientHint 
   return Object.prototype.hasOwnProperty.call(payload, 'data') ? payload.data : payload
 }
 
+export async function synthesizeGuideVoice({
+  sessionId,
+  text,
+  targetType = '',
+  targetTitle = '',
+  model = '',
+  voice = ''
+}) {
+  const body = {
+    session_id: sessionId || 'demo_session',
+    text
+  }
+  if (targetType) body.target_type = targetType
+  if (targetTitle) body.target_title = targetTitle
+  if (model) body.model = model
+  if (voice) body.voice = voice
+
+  const response = await fetch(`${API_BASE}/voice/synthesize`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  })
+  const payload = await response.json()
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.message || payload.detail || '语音讲解生成失败')
+  }
+  return Object.prototype.hasOwnProperty.call(payload, 'data') ? payload.data : payload
+}
+
 async function fileToBase64(file) {
   const bytes = new Uint8Array(await file.arrayBuffer())
   let binary = ''
