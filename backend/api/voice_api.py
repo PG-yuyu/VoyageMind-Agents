@@ -13,10 +13,14 @@ import urllib.request
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from backend.schemas import ApiResponse
 from backend.services.chatbot_service import ChatbotService
+from backend.services.tts_script_service import GuideTtsScriptService
+from backend.services.tts_service import DashScopeTtsService
 
 router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
 
@@ -26,6 +30,50 @@ SCENE_LABELS = {
     "guide": "map AI tour guide",
     "adjustment": "itinerary adjustment",
 }
+
+# TTS 链路拆成两层服务：
+# 1. GuideTtsScriptService 只负责 LLM 改写和 SSML 停顿包装。
+# 2. DashScopeTtsService 只负责调用阿里 TTS、下载并缓存音频文件。
+tts_script_service = GuideTtsScriptService()
+tts_service = DashScopeTtsService()
+
+
+def _env_default(name: str, fallback: str) -> str:
+    # Pydantic 的 default_factory 在请求建模时读取环境变量，便于 .env 调整默认音色。
+    return os.environ.get(name, fallback)
+
+
+class GuideTtsRequest(BaseModel):
+    """导游讲解 TTS 请求体。
+
+    前端只需要传 text；target_type 和 target_title 用来帮助 LLM 改写得更贴合场景。
+    model、voice、format 可以由前端覆盖，也可以直接走 .env 默认值。
+    """
+
+    # 保留 session_id，便于后续按会话做音频历史或缓存清理。
+    session_id: str = "demo_session"
+
+    # text 是导游回答原文，先经 LLM 改写，再进入 TTS。
+    text: str = Field(..., min_length=1, max_length=3000)
+
+    # target_type 例如 place、route、food，用于提示讲解对象类型。
+    target_type: str = "place"
+
+    # target_title 例如“五大道”，用于让讲解稿开头更自然。
+    target_title: str = ""
+
+    # 默认模型从 .env 读取，未配置时使用 CosyVoice v3 flash。
+    model: str = Field(
+        default_factory=lambda: _env_default("TTS_MODEL", "cosyvoice-v3-flash")
+    )
+
+    # 默认音色从 .env 读取，方便联调时统一替换声音。
+    voice: str = Field(
+        default_factory=lambda: _env_default("TTS_VOICE", "longanhuan_v3")
+    )
+
+    # 默认输出 mp3，前端 audio 标签兼容性最好。
+    format: str = Field(default_factory=lambda: _env_default("TTS_FORMAT", "mp3"))
 
 
 def ok(data=None, message: str = "\u64cd\u4f5c\u6210\u529f") -> ApiResponse:
@@ -64,6 +112,75 @@ async def understand_voice(
             "recognition_mode": "server_asr_plus_chatbot" if raw_transcript else "server_asr_failed",
         }
     )
+
+
+@router.post("/synthesize")
+async def synthesize_voice(body: GuideTtsRequest) -> ApiResponse:
+    """生成导游讲解音频。
+
+    流程是：原始文本 -> LLM 讲解稿 -> 后端规则 SSML -> 阿里 TTS -> 本地 mp3 URL。
+    """
+
+    try:
+        # 第一步：只让 LLM 生成纯中文讲解稿，不让它直接输出 SSML 标签。
+        script = tts_script_service.build_script(
+            body.text,
+            body.target_type,
+            body.target_title,
+        )
+
+        # 第二步：后端按标点统一插入停顿，保证 SSML 结构稳定可控。
+        ssml = tts_script_service.build_ssml(script)
+
+        # 第三步：TTS 合成和音频下载是阻塞 I/O，放到线程池避免卡住事件循环。
+        audio_path = await asyncio.to_thread(
+            tts_service.synthesize_to_file,
+            ssml,
+            body.model,
+            body.voice,
+            body.format,
+        )
+
+        # 只返回后端可访问的相对 URL，不暴露阿里返回的临时音频地址。
+        return ok(
+            {
+                "audio_url": f"/api/v1/voice/tts/{audio_path.name}",
+                "audio_type": _audio_media_type(audio_path.suffix),
+                "speech_script": script,
+            }
+        )
+    except Exception as exc:
+        # 保留具体错误信息，联调时能看到是 LLM、SSML、TTS 请求还是下载失败。
+        raise HTTPException(status_code=500, detail=f"语音讲解生成失败：{exc}") from exc
+
+
+@router.get("/tts/{filename}")
+def get_tts_file(filename: str):
+    """读取本地缓存音频文件，供前端 audio 标签播放。"""
+
+    # 只允许纯文件名，拒绝 ../ 这类路径穿越输入。
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        raise HTTPException(status_code=400, detail="非法文件名")
+
+    # 音频必须位于 DashScopeTtsService 固定生成目录下。
+    path = tts_service.tts_dir / safe_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="音频不存在")
+
+    # 根据真实后缀返回媒体类型，避免前端播放器识别错误。
+    return FileResponse(path, media_type=_audio_media_type(path.suffix))
+
+
+def _audio_media_type(suffix: str) -> str:
+    """把文件后缀映射成 HTTP Content-Type。"""
+
+    return {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".opus": "audio/ogg",
+        ".pcm": "application/octet-stream",
+    }.get(suffix.lower(), "application/octet-stream")
 
 
 async def _transcribe_audio(audio_bytes: bytes, filename: str) -> tuple[str, str]:

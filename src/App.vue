@@ -1045,10 +1045,68 @@ function applyBackendItinerary(backendItinerary) {
       hotel: '参考酒店',
       routeTime: routeTimeStr,
       area: city,
-      highlights: [],
+      highlights: buildBackendHighlights(items, dayData),
       items,
     }
   })
+}
+
+function buildBackendHighlights(uiItems, dayData = {}) {
+  const result = recommendationResult.value || {}
+  const evidenceList = Array.isArray(result.evidence) ? result.evidence : []
+  const evidenceByPlaceId = new Map(
+    evidenceList
+      .filter((item) => item?.place_id && item.sufficient !== false && item.summary)
+      .map((item) => [item.place_id, item])
+  )
+  const placesById = new Map(
+    recommendationPlaces(result)
+      .filter((place) => place?.place_id)
+      .map((place) => [place.place_id, place])
+  )
+  const highlights = []
+
+  ;(Array.isArray(dayData.highlights) ? dayData.highlights : []).forEach((item) => {
+    appendHighlight(highlights, item)
+  })
+
+  ;(dayData.items || []).forEach((item) => {
+    const placeId = item.place_id
+    const evidence = placeId ? evidenceByPlaceId.get(placeId) : null
+    const place = item._place || placesById.get(placeId) || {}
+    if (evidence?.summary) {
+      appendHighlight(highlights, `${place.name || item.note || placeId}：${evidence.summary}`)
+      return
+    }
+
+    const reason = place.recommend_reason
+      || place.recommendation_reason
+      || place.short_description
+      || place.description
+      || ''
+    if (reason && !['departure', 'return', 'transport'].includes(item.item_type)) {
+      appendHighlight(highlights, `${place.name || item.note || placeId}：${reason}`)
+    }
+  })
+
+  if (!highlights.length && result.policy_summary) {
+    appendHighlight(highlights, result.policy_summary)
+  }
+
+  uiItems
+    .filter((item) => !['出发准备', '返程', '跨区交通'].includes(item.tag))
+    .slice(0, 3)
+    .forEach((item) => {
+      appendHighlight(highlights, `${item.time} ${item.title}：${item.desc || item.route}`)
+    })
+
+  return highlights.slice(0, 4)
+}
+
+function appendHighlight(target, value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!text || target.includes(text)) return
+  target.push(text.length > 90 ? `${text.slice(0, 90)}...` : text)
 }
 
 /** item_type → 前端 tag 映射 */

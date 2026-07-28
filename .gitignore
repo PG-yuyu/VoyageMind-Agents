@@ -27,6 +27,7 @@ logs/
 uploads/
 tmp/
 temp/
+backend/generated/
 
 # test / tooling cache
 .pytest_cache/
