@@ -77,8 +77,8 @@ class PlanningState:
     # --- 循环控制 ---
     repair_count: int = 0
     optimize_count: int = 0
-    max_repairs: int = 2
-    max_optimizes: int = 1
+    max_repairs: int = 0
+    max_optimizes: int = 0
 
     # --- 错误 ---
     errors: list[str] = field(default_factory=list)

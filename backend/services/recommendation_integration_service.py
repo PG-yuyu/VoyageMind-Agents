@@ -83,6 +83,7 @@ class RecommendationIntegrationService:
         )
 
         result = self.recommendation_agent.recommend(context)
+        result = self._limit_result_for_planning(result, requirements)
         if enrich_evidence:
             result = self._enrich_evidence_safely(result)
         if plan_routes:
@@ -95,6 +96,34 @@ class RecommendationIntegrationService:
             "map_resources": map_resources.to_dict(),
             "routes": [route.to_dict() for route in result.routes],
         }
+
+    def _limit_result_for_planning(
+        self,
+        result: RecommendationResult,
+        requirements: TravelRequest,
+    ) -> RecommendationResult:
+        """按旅行天数保留适合规划的 TopK 候选，减少 LLM、路线和地图压力。"""
+
+        days = max(1, min(int(requirements.days or 1), 5))
+        attraction_limit = max(4, days * 4)
+        restaurant_limit = max(3, days * 3)
+        hotel_limit = 3
+
+        limited = replace(
+            result,
+            attractions=result.attractions[:attraction_limit],
+            restaurants=result.restaurants[:restaurant_limit],
+            hotels=result.hotels[:hotel_limit],
+            agent_trace=[
+                *result.agent_trace,
+                (
+                    "按天数截断候选："
+                    f"景点最多{attraction_limit}个、餐厅最多{restaurant_limit}个、"
+                    f"酒店最多{hotel_limit}个"
+                ),
+            ],
+        )
+        return limited
 
     def _enrich_evidence_safely(
         self,

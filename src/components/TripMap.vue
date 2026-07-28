@@ -131,7 +131,7 @@
                 <span class="voice-bubble__icon"></span>
                 <span class="voice-bubble__waves"><i></i><i></i><i></i></span>
                 <span class="voice-bubble__label">语音提问</span>
-                <span class="voice-bubble__time">点击播放</span>
+                <span class="voice-bubble__time">{{ guidePlayingVoiceUrl === message.audioUrl ? '播放中' : '' }}</span>
                 <audio
                   :src="message.audioUrl"
                   :type="message.audioType || 'audio/webm'"
@@ -149,37 +149,19 @@
                   class="guide-tts"
                   :class="{ ready: message.ttsUrl, playing: guidePlayingVoiceUrl === message.ttsUrl }"
                 >
-                  <header class="guide-tts__head">
-                    <span class="guide-tts__mark"></span>
-                    <strong>语音讲解</strong>
-                    <small>{{ guideTtsStateLabel(message) }}</small>
-                  </header>
-                  <div class="guide-tts__player">
-                    <button
-                      type="button"
-                      class="guide-tts__button"
-                      :class="{ playing: guidePlayingVoiceUrl === message.ttsUrl }"
-                      :disabled="message.ttsLoading"
-                      @click="handleGuideTtsClick(message)"
-                    >
-                      <span class="guide-tts__icon"></span>
-                      <span>{{ guideTtsButtonLabel(message) }}</span>
-                    </button>
-                    <div class="guide-tts__timeline">
-                      <input
-                        type="range"
-                        min="0"
-                        :max="guideTtsDuration(message)"
-                        step="0.1"
-                        :value="guideTtsCurrentTime(message)"
-                        :disabled="!message.ttsUrl || !guideTtsDuration(message)"
-                        @input="seekGuideTts($event, message)"
-                      />
-                      <div class="guide-tts__time">
-                        <span>{{ formatGuideTtsTime(message.ttsCurrentTime) }}</span>
-                        <span>{{ formatGuideTtsTime(message.ttsDuration) }}</span>
-                      </div>
-                    </div>
+                  <button
+                    type="button"
+                    class="guide-tts__player"
+                    :class="{ playing: guidePlayingVoiceUrl === message.ttsUrl }"
+                    :disabled="message.ttsLoading"
+                    @click="handleGuideTtsClick(message)"
+                  >
+                    <span class="guide-tts__icon"></span>
+                    <span class="guide-tts__text">
+                      <strong>{{ guideTtsCompactLabel(message) }}</strong>
+                      <small>{{ guideTtsCompactMeta(message) }}</small>
+                    </span>
+                    <span class="guide-tts__bars"><i></i><i></i><i></i></span>
                     <audio
                       v-if="message.ttsUrl"
                       :src="message.ttsUrl"
@@ -192,7 +174,7 @@
                       @ended="finishGuideTtsPlayback(message)"
                       @pause="stopGuideVoicePlayback(message.ttsUrl)"
                     ></audio>
-                  </div>
+                  </button>
                   <p v-if="message.ttsLoading || message.ttsError" class="guide-tts__status">
                     {{ message.ttsError || '正在生成导游语音...' }}
                   </p>
@@ -328,8 +310,30 @@ const mapSubtitle = computed(() => {
     : '生成行程后会按每天展示地点和路线'
 })
 
+const activeDayItems = computed(() => {
+  const day = (props.itineraryDays || []).find((item) => Number(item.day) === Number(activeMapDay.value))
+  const items = Array.isArray(day?.items) ? day.items : []
+  return items.filter(isMapDisplayItem)
+})
+
+const activeDayResources = computed(() => {
+  if (!dayTabs.value.length) return props.resources
+
+  const result = []
+  const seen = new Set()
+  activeDayItems.value.forEach((item, index) => {
+    const resource = resourceForDayItem(item, index)
+    if (!resource) return
+    const key = resource.place_id || normalizePlaceName(resource.name)
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    result.push(resource)
+  })
+  return result
+})
+
 const activeDayPlaceIds = computed(() => {
-  return getUniqueDayPlaceIds(activeMapDay.value)
+  return activeDayResources.value.map((resource) => resource.place_id).filter(Boolean)
 })
 
 const activeDayRoutePairs = computed(() => {
@@ -359,7 +363,57 @@ function getUniqueDayPlaceIds(dayNumber) {
   return ids
 }
 
+function isMapDisplayItem(item) {
+  const title = String(item?.title || item?.name || item?.place_name || '').trim()
+  if (!title) return false
+  const tag = String(item?.tag || item?.type || '').trim()
+  const ignoredTags = ['返程', '交通', '跨区交通', '出发准备']
+  return !ignoredTags.some((keyword) => tag.includes(keyword) || title.includes(keyword))
+}
+
+function resourceForDayItem(item, index) {
+  const matched = findResourceForDayItem(item)
+  if (matched) {
+    return {
+      ...matched,
+      name: matched.name || item?.title || item?.name,
+      itinerary_time: item?.time || matched.itinerary_time,
+      itinerary_note: item?.detail || item?.note || matched.itinerary_note
+    }
+  }
+
+  const longitude = Number(item?.longitude ?? item?.lng ?? item?.location?.longitude ?? item?.location?.lng)
+  const latitude = Number(item?.latitude ?? item?.lat ?? item?.location?.latitude ?? item?.location?.lat)
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null
+
+  const title = item?.title || item?.name || item?.place_name || `行程地点 ${index + 1}`
+  return {
+    place_id: item?.place_id || `itinerary_day_${activeMapDay.value}_${index}_${normalizePlaceName(title)}`,
+    name: title,
+    place_type: inferPlaceType(item),
+    longitude,
+    latitude,
+    address: item?.address || '',
+    short_description: item?.detail || item?.note || '当前行程中的地点',
+    recommend_reason: item?.detail || item?.note || '',
+    price: Number(item?.cost) || 0,
+    open_time: item?.duration || item?.time || '按行程安排',
+    verified: item?.verified !== false
+  }
+}
+
+function inferPlaceType(item) {
+  const text = `${item?.tag || ''} ${item?.type || ''} ${item?.title || ''}`
+  if (/餐|饭|食|午餐|晚餐|早餐/.test(text)) return 'restaurant'
+  if (/酒店|住宿|宾馆/.test(text)) return 'hotel'
+  return 'attraction'
+}
+
 function findResourceForDayItem(item) {
+  if (item?.place_id) {
+    const byId = props.resources.find((resource) => resource?.place_id === item.place_id)
+    if (byId) return byId
+  }
   const names = [
     item?.title,
     item?.name,
@@ -389,15 +443,7 @@ function normalizePlaceName(value) {
 }
 
 const visibleResources = computed(() => {
-  if (!activeDayPlaceIds.value.length) return dayTabs.value.length ? [] : props.resources
-  const idSet = new Set(activeDayPlaceIds.value)
-  const unique = new Map()
-  props.resources.forEach((resource) => {
-    if (idSet.has(resource.place_id) && !unique.has(resource.place_id)) {
-      unique.set(resource.place_id, resource)
-    }
-  })
-  return activeDayPlaceIds.value.map((id) => unique.get(id)).filter(Boolean)
+  return activeDayResources.value
 })
 
 const visibleRoutes = computed(() => {
@@ -414,7 +460,37 @@ const visibleRoutes = computed(() => {
     if (!key || uniqueRoutes.has(key)) return
     uniqueRoutes.set(key, route)
   })
-  return Array.from(uniqueRoutes.values()).sort((left, right) => {
+
+  const sequentialRoutes = []
+  for (let index = 0; index < visibleResources.value.length - 1; index += 1) {
+    const origin = visibleResources.value[index]
+    const destination = visibleResources.value[index + 1]
+    if (!origin?.place_id || !destination?.place_id || origin.place_id === destination.place_id) continue
+    const key = normalizedRouteKey({
+      origin_place_id: origin.place_id,
+      destination_place_id: destination.place_id
+    })
+    const existing = uniqueRoutes.get(key)
+    if (existing) {
+      sequentialRoutes.push(existing)
+      continue
+    }
+    sequentialRoutes.push({
+      route_id: `day_${activeMapDay.value}_${origin.place_id}_${destination.place_id}`,
+      origin_place_id: origin.place_id,
+      destination_place_id: destination.place_id,
+      origin_name: origin.name,
+      destination_name: destination.name,
+      source: 'itinerary',
+      verified: false,
+      polyline: [
+        [Number(origin.longitude), Number(origin.latitude)],
+        [Number(destination.longitude), Number(destination.latitude)]
+      ]
+    })
+  }
+
+  return sequentialRoutes.sort((left, right) => {
     const leftIsSequential = activeDayRoutePairs.value.has(`${left.origin_place_id}->${left.destination_place_id}`)
     const rightIsSequential = activeDayRoutePairs.value.has(`${right.origin_place_id}->${right.destination_place_id}`)
     return Number(rightIsSequential) - Number(leftIsSequential)
@@ -519,6 +595,25 @@ function guideTtsStateLabel(message) {
   if (message.ttsUrl && guidePlayingVoiceUrl.value === message.ttsUrl) return '播放中'
   if (message.ttsUrl) return '已就绪'
   return '待生成'
+}
+
+function guideTtsCompactLabel(message) {
+  if (message.ttsLoading) return '正在生成语音'
+  if (message.ttsError) return '语音生成失败'
+  if (message.ttsUrl && guidePlayingVoiceUrl.value === message.ttsUrl) return '正在播放讲解'
+  if (message.ttsUrl) return '听这段讲解'
+  return '生成语音讲解'
+}
+
+function guideTtsCompactMeta(message) {
+  if (message.ttsLoading) return '稍等一下'
+  if (message.ttsError) return '点击重试'
+  const duration = guideTtsDuration(message)
+  if (duration) {
+    return `${formatGuideTtsTime(guideTtsCurrentTime(message))} / ${formatGuideTtsTime(duration)}`
+  }
+  if (message.ttsUrl) return '点击播放'
+  return '点击生成'
 }
 
 function guideTtsDuration(message) {
@@ -672,8 +767,8 @@ const selectedResource = computed(() => {
   return resources.value.find((resource) => resource.place_id === selectedPlaceId.value) || resources.value[0] || null
 })
 
-const amapRoutes = computed(() => visibleRoutes.value.filter(isVerifiedAmapRoute))
-const nonAmapRoutes = computed(() => visibleRoutes.value.filter((route) => !isVerifiedAmapRoute(route)))
+const amapRoutes = computed(() => visibleRoutes.value.filter(hasDrawableRoute))
+const nonAmapRoutes = computed(() => amapRoutes.value.filter((route) => !isVerifiedAmapRoute(route)))
 
 const mockRouteLines = computed(() => {
   return amapRoutes.value
@@ -693,12 +788,11 @@ const mapModeNotice = computed(() => {
 })
 
 const routeStatusNotice = computed(() => {
-  if (!props.routes.length) return ''
   if (amapRoutes.value.length) {
-    const skippedText = nonAmapRoutes.value.length ? `，${nonAmapRoutes.value.length} 条未验证路线未绘制` : ''
-    return `已渲染 ${amapRoutes.value.length} 条高德实际路线${skippedText}。`
+    const fallbackText = nonAmapRoutes.value.length ? `，其中 ${nonAmapRoutes.value.length} 条按当天站点顺序补齐` : ''
+    return `已渲染 ${amapRoutes.value.length} 条当日路线${fallbackText}。`
   }
-  return '当前路线未通过高德地图验证，不展示为真实路线。'
+  return '当前天地点不足，暂不绘制路线。'
 })
 
 const guideTitle = computed(() => {
@@ -779,8 +873,9 @@ function openGuideMode() {
 function selectMapDay(day) {
   emit('change-day', day)
   hasManualSelection.value = false
-  const firstPlaceId = getUniqueDayPlaceIds(day)[0]
-  const firstResource = props.resources.find((resource) => resource.place_id === firstPlaceId)
+  const dayData = (props.itineraryDays || []).find((item) => Number(item.day) === Number(day))
+  const firstItem = (Array.isArray(dayData?.items) ? dayData.items : []).find(isMapDisplayItem)
+  const firstResource = firstItem ? resourceForDayItem(firstItem, 0) : visibleResources.value[0]
   if (firstResource) {
     mapStore.selectPlace(firstResource.place_id)
   }
@@ -1204,6 +1299,17 @@ function isVerifiedAmapRoute(route) {
     route?.verified === true &&
     Array.isArray(route.polyline) &&
     route.polyline.length >= 2
+  )
+}
+
+function hasDrawableRoute(route) {
+  return (
+    Array.isArray(route?.polyline) &&
+    route.polyline.length >= 2 &&
+    route.polyline.every((point) => (
+      Number.isFinite(Number(point?.[0])) &&
+      Number.isFinite(Number(point?.[1]))
+    ))
   )
 }
 
@@ -1702,24 +1808,23 @@ function clamp(value, min, max) {
 
 .guide-tts {
   display: grid;
-  gap: 9px;
-  width: min(360px, 100%);
+  gap: 6px;
+  width: min(260px, 100%);
   margin-top: 6px;
-  padding: 12px 13px;
-  border: 1px solid #dce7f2;
-  border-radius: 18px;
-  background: #fff;
-  box-shadow: 0 10px 24px rgba(31, 41, 55, 0.07);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .guide-tts.ready {
-  border-color: #cdece7;
-  background: #fbfefd;
+  border-color: transparent;
+  background: transparent;
 }
 
 .guide-tts.playing {
-  border-color: #9ee2d8;
-  box-shadow: 0 12px 26px rgba(20, 184, 166, 0.13);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .guide-tts__head {
@@ -1773,53 +1878,44 @@ function clamp(value, min, max) {
 }
 
 .guide-tts__player {
-  display: grid;
-  grid-template-columns: 118px minmax(0, 1fr);
-  align-items: center;
-  gap: 11px;
-}
-
-.guide-tts__button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
-  min-height: 38px;
-  justify-content: center;
-  padding: 0 12px;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
   border: 1px solid #dce7f2;
   border-radius: 999px;
   background: #f8fbff;
   color: #172033;
-  font-size: 12px;
-  font-weight: 900;
   box-shadow: none;
   cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
 }
 
-.guide-tts__button:disabled {
+.guide-tts__player:hover {
+  border-color: #b9c8ff;
+  background: #f4f8ff;
+  transform: translateY(-1px);
+}
+
+.guide-tts__player:disabled {
   cursor: wait;
   opacity: 0.72;
 }
 
-.guide-tts__button.playing {
+.guide-tts__player.playing {
   border-color: #9ee2d8;
   background: #ecfdf9;
   color: #0f766e;
   box-shadow: none;
 }
 
-.guide-tts__button span {
-  color: inherit;
-  font-size: 12px;
-  font-weight: 900;
-}
-
 .guide-tts__icon {
   position: relative;
   display: inline-grid;
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
   flex: 0 0 auto;
   place-items: center;
   border-radius: 999px;
@@ -1830,14 +1926,14 @@ function clamp(value, min, max) {
   width: 0;
   height: 0;
   margin-left: 2px;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 6px solid #fff;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid #fff;
   content: "";
 }
 
-.guide-tts__button.playing .guide-tts__icon::before,
-.guide-tts__button.playing .guide-tts__icon::after {
+.guide-tts__player.playing .guide-tts__icon::before,
+.guide-tts__player.playing .guide-tts__icon::after {
   width: 3px;
   height: 8px;
   margin: 0;
@@ -1846,43 +1942,73 @@ function clamp(value, min, max) {
   content: "";
 }
 
-.guide-tts__button.playing .guide-tts__icon {
+.guide-tts__player.playing .guide-tts__icon {
   grid-template-columns: repeat(2, 3px);
   gap: 2px;
 }
 
-.guide-tts__timeline {
+.guide-tts__text {
   display: grid;
-  gap: 6px;
+  gap: 1px;
   min-width: 0;
+  text-align: left;
 }
 
-.guide-tts__timeline input[type="range"] {
-  width: 100%;
-  height: 4px;
-  margin: 0;
-  accent-color: #0f766e;
-  cursor: pointer;
+.guide-tts__text strong {
+  overflow: hidden;
+  color: #172033;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.guide-tts__timeline input[type="range"]:disabled {
-  cursor: wait;
-  opacity: 0.5;
-}
-
-.guide-tts__time {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: #5b687b;
+.guide-tts__text small {
+  overflow: hidden;
+  color: #7a879a;
   font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 850;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guide-tts__bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.guide-tts__bars i {
+  width: 3px;
+  height: 8px;
+  border-radius: 999px;
+  background: #8aa0ff;
+  opacity: 0.65;
+}
+
+.guide-tts__bars i:nth-child(2) {
+  height: 14px;
+}
+
+.guide-tts__bars i:nth-child(3) {
+  height: 20px;
+}
+
+.guide-tts__player.playing .guide-tts__bars i {
+  animation: guide-voice-bars 0.78s ease-in-out infinite;
+}
+
+.guide-tts__player.playing .guide-tts__bars i:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.guide-tts__player.playing .guide-tts__bars i:nth-child(3) {
+  animation-delay: 0.2s;
 }
 
 .guide-tts__status {
-  margin: -2px 0 0;
+  margin: 0 0 0 8px;
   color: #69778b;
   font-size: 11px;
   font-weight: 800;
@@ -1893,7 +2019,20 @@ function clamp(value, min, max) {
 }
 
 .guide-voice-bubble {
-  width: min(286px, 100%);
+  width: auto;
+  min-width: 150px;
+}
+
+@keyframes guide-voice-bars {
+  0%,
+  100% {
+    transform: scaleY(0.68);
+    opacity: 0.52;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
 }
 
 .guide-panel__quick {

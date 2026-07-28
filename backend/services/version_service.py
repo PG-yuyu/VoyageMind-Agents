@@ -146,6 +146,8 @@ def diff_versions(
                     after_item_id=iid,
                     before_place_id=o.place_id,
                     after_place_id=n.place_id,
+                    before_place_name=_item_place_name(o),
+                    after_place_name=_item_place_name(n),
                     reason="地点替换",
                     cost_change=round(n.total_cost - o.total_cost, 2),
                     distance_change_m=_dist_diff(o, n),
@@ -161,6 +163,8 @@ def diff_versions(
                 after_item_id=None,
                 before_place_id=o.place_id,
                 after_place_id=None,
+                before_place_name=_item_place_name(o),
+                after_place_name=None,
                 reason="删除项目",
                 cost_change=round(-o.total_cost, 2),
                 distance_change_m=0,
@@ -174,6 +178,8 @@ def diff_versions(
                 after_item_id=iid,
                 before_place_id=None,
                 after_place_id=n.place_id,
+                before_place_name=None,
+                after_place_name=_item_place_name(n),
                 reason="新增项目",
                 cost_change=round(n.total_cost, 2),
                 distance_change_m=0,
@@ -245,6 +251,34 @@ def _dist_diff(old: ItineraryItem, new: ItineraryItem) -> int:
     if isinstance(new_route, dict):
         new_dist = new_route.get("distance_m", 0) or 0
     return new_dist - old_dist
+
+
+def _item_place_name(item: ItineraryItem) -> str | None:
+    """尽量从行程项或地点仓库里取出可展示的中文地点名。"""
+    place = getattr(item, "_place", None)
+    if isinstance(place, dict):
+        name = place.get("name") or place.get("title")
+        if name:
+            return str(name)
+
+    note = getattr(item, "note", None)
+    if note:
+        return str(note)
+
+    place_id = getattr(item, "place_id", None)
+    if place_id:
+        try:
+            from backend.app.repositories import PlaceRepository
+            repo = PlaceRepository()
+            place_obj = repo.get_by_id(place_id)
+            if place_obj:
+                place_dict = place_obj.to_dict()
+                name = place_dict.get("name") or place_dict.get("title")
+                if name:
+                    return str(name)
+        except Exception:
+            pass
+    return place_id
 
 
 # ============================================================================

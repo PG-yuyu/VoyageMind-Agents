@@ -567,8 +567,8 @@ class CoordinatorAgent:
             from backend.clients.deepseek_llm import DeepSeekLLM
             from backend.agents.planning_agent import PlanningAgent
 
-            llm = DeepSeekLLM()
-            agent = PlanningAgent(llm_callable=llm)
+            llm = DeepSeekLLM(temperature=0.2, max_tokens=2048)
+            agent = PlanningAgent(llm_callable=llm, max_repairs=0, max_optimizes=0)
             result = agent.plan(
                 requirements=req,
                 places=places,

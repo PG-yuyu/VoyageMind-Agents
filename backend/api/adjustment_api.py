@@ -8,13 +8,16 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
 
 from backend.schemas import ApiResponse
 from backend.schemas.modification import ModificationRequest
 from backend.agents.adjustment_agent import AdjustmentAgent
+from backend.services.chatbot_service import ChatbotService
 from backend.agents.coordinator_agent import (
     _normalize_item_types,
     _normalize_itinerary,
@@ -23,6 +26,70 @@ from backend.agents.coordinator_agent import (
 )
 
 router = APIRouter(prefix="/api/v1/itineraries", tags=["adjustment"])
+
+
+class AdjustmentPreviewRequest(BaseModel):
+    """只生成修改建议，不直接改写行程。"""
+
+    session_id: str = Field(default="demo_session")
+    target_day: int | None = Field(default=None, ge=1)
+    action: str = Field(default="replace_attraction")
+    original_text: str = Field(default="")
+    current_itinerary: dict[str, Any] = Field(default_factory=dict)
+
+
+def _compact_preview_itinerary(itinerary: dict[str, Any], target_day: int | None) -> list[dict[str, Any]]:
+    """压缩前端行程给 LLM，避免长 RAG 描述污染建议。"""
+    days = itinerary.get("days") or []
+    compact_days: list[dict[str, Any]] = []
+    for day in days:
+        day_no = day.get("day")
+        if target_day and int(day_no or 0) != int(target_day):
+            continue
+        items = []
+        for item in day.get("items") or []:
+            items.append({
+                "time": item.get("time") or item.get("start_time") or "",
+                "title": item.get("title") or item.get("place_name") or item.get("note") or "",
+                "tag": item.get("tag") or item.get("item_type") or "",
+                "desc": item.get("desc") or item.get("note") or "",
+                "route": item.get("route") or "",
+                "cost": item.get("cost") if item.get("cost") is not None else item.get("total_cost", 0),
+            })
+        compact_days.append({
+            "day": day_no,
+            "title": day.get("title") or f"第 {day_no} 天",
+            "walking": day.get("walking") or day.get("walking_distance_m") or "",
+            "cost": day.get("cost") if day.get("cost") is not None else day.get("daily_cost", 0),
+            "items": items,
+        })
+    return compact_days
+
+
+def _clean_preview_changes(raw_changes: Any) -> list[dict[str, str]]:
+    changes: list[dict[str, str]] = []
+    if not isinstance(raw_changes, list):
+        return changes
+    for raw in raw_changes:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or "调整建议").strip()
+        from_text = str(raw.get("from") or "").strip()
+        to_text = str(raw.get("to") or "").strip()
+        why = str(raw.get("why") or raw.get("reason") or "").strip()
+        if not from_text or not to_text:
+            continue
+        if from_text.replace(" ", "") == to_text.replace(" ", ""):
+            continue
+        changes.append({
+            "label": label[:18],
+            "from": from_text[:42],
+            "to": to_text[:52],
+            "why": why[:90] or "根据你的输入和当前行程由智能体判断。",
+        })
+        if len(changes) >= 3:
+            break
+    return changes
 
 
 def _make_alt_fetcher(session_id: str = "", itinerary_id: str = ""):
@@ -114,6 +181,74 @@ def _post_process_modified_itinerary(itinerary: dict) -> dict:
     if _places:
         _normalize_itinerary(itinerary, _places)
     return itinerary
+
+
+@router.post("/adjustment-preview")
+async def api_adjustment_preview(request: AdjustmentPreviewRequest) -> ApiResponse:
+    """由 Chatbot 智能体生成修改建议预览。
+
+    这个接口只分析用户想怎么改，不直接替换行程；前端点击“应用这些修改”
+    后再调用 /modify 执行真正调整。
+    """
+    target_day = request.target_day
+    compact_days = _compact_preview_itinerary(request.current_itinerary or {}, target_day)
+    scope = f"第 {target_day} 天" if target_day else "当前行程"
+
+    if not compact_days:
+        return ApiResponse(data={
+            "ready": False,
+            "scope": scope,
+            "summary": "当前没有可分析的行程数据，请先生成行程后再修改。",
+            "changes": [],
+        })
+
+    fallback = {
+        "ready": False,
+        "scope": scope,
+        "summary": "智能体暂未返回可应用的修改建议，请换一种说法或指定更明确的地点、时间段、预算或体力要求。",
+        "changes": [],
+    }
+
+    chatbot = ChatbotService()
+    if not chatbot.available:
+        return ApiResponse(data={
+            **fallback,
+            "summary": f"智能体不可用，无法生成真实建议：{chatbot.error or '模型配置未就绪'}",
+        })
+
+    system_prompt = (
+        "你是天津自由行系统的“行程智能调整 Agent”。"
+        "你只负责根据用户修改请求和当前行程，产出最多 3 条可确认的修改建议。"
+        "必须用当前行程里的真实地点作为 from；to 可以是更合理的新安排、压缩停留、调整交通或时间。"
+        "不要把地点改成同一个地点；不要输出空泛建议；不要自动应用。"
+        "如果用户说累、少走、近一点，应优先缩短半径、减少跨区、改交通或替换为同区域低强度点。"
+        "如果用户说下雨/室内，应优先把露天安排换成室内场馆或商圈休整。"
+        "如果用户说预算，应优先调整高消费餐饮、酒店或交通。"
+        "只返回 JSON 对象，字段为 ready、scope、summary、changes。"
+        "changes 每项字段为 label、from、to、why。"
+    )
+    user_payload = {
+        "用户修改要求": request.original_text,
+        "识别动作": request.action,
+        "目标范围": scope,
+        "当前行程": compact_days,
+        "输出要求": "最多 3 条；每条建议必须具体到原安排和新安排；不要 Markdown。",
+    }
+    result = chatbot.chat_json(
+        system_prompt,
+        json.dumps(user_payload, ensure_ascii=False),
+        fallback,
+    )
+    changes = _clean_preview_changes(result.get("changes"))
+    return ApiResponse(data={
+        "ready": bool(changes),
+        "scope": str(result.get("scope") or scope),
+        "summary": str(result.get("summary") or (
+            f"已由智能体生成 {len(changes)} 条建议，确认后再替换当前行程。"
+            if changes else fallback["summary"]
+        )),
+        "changes": changes,
+    })
 
 
 @router.post("/modify")

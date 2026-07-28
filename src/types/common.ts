@@ -128,6 +128,8 @@ export interface TripChange {
   after_item_id: string | null
   before_place_id: string | null
   after_place_id: string | null
+  before_place_name?: string | null
+  after_place_name?: string | null
   reason: string | null
   cost_change: number
   distance_change_m: number

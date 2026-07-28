@@ -69,6 +69,8 @@ def compute_diff(
                     after_item_id=iid,
                     before_place_id=o.get("place_id"),
                     after_place_id=n.get("place_id"),
+                    before_place_name=_item_place_name(o),
+                    after_place_name=_item_place_name(n),
                     reason=_detect_change_reason(o, n),
                     cost_change=round(
                         float(n.get("total_cost", 0) or 0)
@@ -89,6 +91,8 @@ def compute_diff(
                 after_item_id=None,
                 before_place_id=o.get("place_id"),
                 after_place_id=None,
+                before_place_name=_item_place_name(o),
+                after_place_name=None,
                 reason="删除项目",
                 cost_change=round(-float(o.get("total_cost", 0) or 0), 2),
                 distance_change_m=0,
@@ -103,6 +107,8 @@ def compute_diff(
                 after_item_id=iid,
                 before_place_id=None,
                 after_place_id=n.get("place_id"),
+                before_place_name=None,
+                after_place_name=_item_place_name(n),
                 reason="新增项目",
                 cost_change=round(float(n.get("total_cost", 0) or 0), 2),
                 distance_change_m=0,
@@ -130,6 +136,20 @@ def _detect_change_reason(
     if old_item.get("item_type") in ("attraction",):
         return "地点替换"
     return "项目变更"
+
+
+def _item_place_name(item: dict) -> str | None:
+    """尽量从行程项里取出给用户看的地点名称。"""
+    place = item.get("_place") or {}
+    if isinstance(place, dict):
+        name = place.get("name") or place.get("title")
+        if name:
+            return str(name)
+    for key in ("title", "place_name", "name", "note"):
+        value = item.get(key)
+        if value:
+            return str(value)
+    return item.get("place_id")
 
 
 def _dist_diff(old_item: dict, new_item: dict) -> int:

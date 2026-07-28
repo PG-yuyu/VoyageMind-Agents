@@ -54,14 +54,20 @@ class PlanningAgent:
         self,
         llm_callable: Callable[[str], str],
         preference_critic: ItineraryPreferenceCritic | None = None,
+        max_repairs: int = 0,
+        max_optimizes: int = 0,
     ):
         """
         Args:
             llm_callable: LLM 调用函数，签名 (prompt: str) -> str
             preference_critic: 软偏好评价器，不传则使用默认实例
+            max_repairs: 硬约束 LLM 修复轮数。默认 0，优先保证生成速度
+            max_optimizes: 软偏好 LLM 优化轮数。默认 0，优先保证生成速度
         """
         self._llm = llm_callable
         self._critic = preference_critic or ItineraryPreferenceCritic(llm_callable)
+        self.max_repairs = max(0, max_repairs)
+        self.max_optimizes = max(0, max_optimizes)
 
     # ====================================================================
     # 主入口
@@ -112,6 +118,8 @@ class PlanningAgent:
             hard_constraints=hard_constraints or [],
             semantic_preferences=semantic_preferences or [],
         )
+        state.max_repairs = self.max_repairs
+        state.max_optimizes = self.max_optimizes
 
         try:
             # ── Step 1: 生成初始行程 ────────────────────────────────
@@ -329,7 +337,7 @@ class PlanningAgent:
 
     def _hard_validation_loop(self, state: PlanningState) -> bool:
         """硬约束校验 + LLM 修复（最多 max_repairs 次）。"""
-        while state.can_repair():
+        while True:
             # 注入 _place 引用
             it = state.itinerary
             if it and state.places:
@@ -343,11 +351,12 @@ class PlanningAgent:
                 logger.info("硬约束校验通过")
                 return True
 
+            if not state.can_repair():
+                logger.warning("硬约束未通过，快速模式下跳过 LLM 修复")
+                return False
+
             # 记录修复次数
             state.repair_count += 1
-            if not state.can_repair():
-                logger.warning("硬约束修复次数已达上限 (%d)", state.max_repairs)
-                return False
 
             # LLM 修复
             logger.info(

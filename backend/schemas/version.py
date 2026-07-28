@@ -27,6 +27,8 @@ class TripChange(BaseModel):
     after_item_id: str | None = None
     before_place_id: str | None = None
     after_place_id: str | None = None
+    before_place_name: str | None = None
+    after_place_name: str | None = None
     reason: str | None = Field(None, description="变更原因")
     cost_change: float = Field(0.0, description="费用变动（元），负=省钱")
     distance_change_m: int = Field(0, description="距离变动（米），负=缩短")

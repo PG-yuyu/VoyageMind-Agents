@@ -24,3 +24,19 @@ export async function modifyItinerary(data: {
   })
   return resp.json()
 }
+
+/** 智能体生成修改建议预览：只分析，不直接替换当前行程 */
+export async function previewItineraryAdjustment(data: {
+  session_id: string
+  target_day?: number | null
+  action: string
+  original_text: string
+  current_itinerary: Record<string, unknown>
+}): Promise<ApiResponse> {
+  const resp = await fetch(`${BASE}/adjustment-preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  return resp.json()
+}
