@@ -139,6 +139,19 @@ class AdjustmentAgent:
         )
         if isinstance(current_itinerary_dict, dict) and current_itinerary_dict.get("days"):
             old_dict = current_itinerary_dict
+            # 修正前端传入的浮点数 walking_distance_m
+            for d in old_dict.get("days", []):
+                w = d.get("walking_distance_m")
+                if isinstance(w, float):
+                    d["walking_distance_m"] = int(round(w))
+            # 清除 _place.description 历史污染（RAG 长文本可能被误写入 description）
+            for d in old_dict.get("days", []):
+                for item in d.get("items", []):
+                    p = item.get("_place") or {}
+                    desc = p.get("description") or ""
+                    if len(desc) > 120:
+                        p["description"] = ""  # 清空污染，保留 rag_description 用于弹窗
+                    item["_place"] = p if p else item.get("_place")
             try:
                 from backend.schemas.itinerary import Itinerary
                 old_itinerary = Itinerary(**old_dict)
@@ -187,9 +200,13 @@ class AdjustmentAgent:
             "replace_attraction", "replace_restaurant", "change_to_indoor",
         ):
             try:
+                # change_to_indoor 需要室内过滤
+                fetch_constraints = dict(new_constraints or {})
+                if action == "change_to_indoor":
+                    fetch_constraints["indoor"] = True
                 alt = self._fetch_alternatives(
                     original_place_id=resolved_place_id or target_item_id,
-                    constraints=new_constraints,
+                    constraints=fetch_constraints,
                 )
                 replacement_places = alt or []
                 trace.append({
@@ -219,6 +236,16 @@ class AdjustmentAgent:
             affected_ids = [it.get("item_id", "") for it in _day_items(cloned_dict, target_day)]
             unlock_items(cloned, affected_ids)
 
+        # 全局动作（reduce_walking / change_budget）：无论 target_day 是否设置，解锁所有天的景点项
+        if action in ("reduce_walking", "change_budget", "change_to_indoor"):
+            for day in cloned.days:
+                for item in day.items:
+                    if item.item_type.value == "attraction":
+                        item.locked = False
+
+        # 刷新快照：解锁操作修改了 cloned 对象，cloned_dict 需要重新序列化
+        cloned_dict = cloned.model_dump(mode="json")
+
         locked_items = []
         unlocked_items = []
         for day in cloned_dict.get("days", []):
@@ -227,6 +254,13 @@ class AdjustmentAgent:
                     locked_items.append(item.get("item_id", ""))
                 else:
                     unlocked_items.append(item.get("item_id", ""))
+
+        logger.warning(
+            "🔍 ADJUST LOCK: action=%s target_day=%s target_item_id=%s | locked=%d unlocked=%d",
+            action, target_day, target_item_id, len(locked_items), len(unlocked_items),
+        )
+        for item_id in unlocked_items[:5]:
+            logger.warning("🔍 ADJUST LOCK:   unlocked: %s", item_id)
 
         # ── 4. 大模型局部重规划 ──────────────────────────────────
         trace.append({
@@ -249,33 +283,53 @@ class AdjustmentAgent:
             replacement_routes="[]",
         )
 
-        # 优先大模型，失败则降级
+        # 优先大模型，失败则降级。
+        # 全局动作（reduce_walking / change_budget）：LLM 对多天行程常只返回 1 天，
+        # 直接走确定性 demo 路径，保证所有天都被处理。
         replan_days = []
         replan_notes = []
         affected_days_set: set[int] = set()
         llm_used = False
         llm_raw = ""
 
-        try:
-            raw = self._llm(prompt)
-            llm_raw = raw[:500]
-            result = _parse_json(raw)
-            replan_days = result.get("days", [])
-            replan_notes = result.get("replan_notes", [])
-            llm_used = True
-        except Exception:
-            pass
+        # reduce_walking / change_budget 走确定性 demo（LLM 对多天处理不可靠）
+        # change_to_indoor 让 LLM 决策，demo 仅做降级兜底
+        skip_llm = action in ("reduce_walking", "change_budget")
+
+        if not skip_llm:
+            try:
+                raw = self._llm(prompt)
+                llm_raw = raw[:500]
+                result = _parse_json(raw)
+                replan_days = result.get("days", [])
+                replan_notes = result.get("replan_notes", [])
+                llm_used = True
+                logger.warning(
+                    "🔍 ADJUST LLM: success | days=%d notes=%d raw_preview=%.200s",
+                    len(replan_days), len(replan_notes), llm_raw,
+                )
+            except Exception as _llm_exc:
+                logger.warning("🔍 ADJUST LLM: FAILED — %s", _llm_exc)
 
         # 大模型失败或产出明显错误 → 降级
         if not llm_used or not replan_days:
-            logger.info("大模型不可用，降级到规则引擎")
+            logger.warning(
+                "🔍 ADJUST FALLBACK: LLM failed or empty, falling to demo. llm_used=%s replan_days=%d",
+                llm_used, len(replan_days),
+            )
             try:
                 raw = _demo_llm(prompt, alt_places=replacement_places)
+                logger.warning("🔍 ADJUST DEMO: raw response (first 300 chars): %.300s", raw)
                 result = _parse_json(raw)
                 replan_days = result.get("days", [])
                 replan_notes = result.get("replan_notes", [])
                 llm_used = False
+                logger.warning(
+                    "🔍 ADJUST DEMO: parsed | days=%d notes=%s",
+                    len(replan_days), replan_notes,
+                )
             except Exception as e:
+                logger.warning("🔍 ADJUST DEMO: FAILED — %s", e)
                 return {"error": f"局部重规划失败: {e}", "itinerary": old_dict, "agent_trace": trace}
 
         trace.append({
@@ -286,22 +340,67 @@ class AdjustmentAgent:
             "status": "success",
         })
 
+        # ── 4.5. 强制还原 locked items ─────────────────────────────
+        # LLM/demo 可能意外修改了 locked 项的 note/title/cost 等字段，
+        # 用 old_dict 中的原始数据完全覆盖，确保未修改项 100% 不变。
+        locked_set = set(locked_items)
+        old_items_by_id: dict[str, dict] = {}
+        for od in old_dict.get("days", []):
+            for oi in od.get("items", []):
+                iid = oi.get("item_id", "")
+                if iid:
+                    old_items_by_id[iid] = dict(oi)
+        for rday in replan_days:
+            for item in rday.get("items", []):
+                iid = item.get("item_id", "")
+                if iid in locked_set:
+                    orig = old_items_by_id.get(iid)
+                    if orig:
+                        # 保留原始 item 的所有字段
+                        item.clear()
+                        item.update(orig)
+
         # ── 5. 质量验证 + 合并 ───────────────────────────────────
-        # 大模型产出：验证非目标项是否被误改，误改则回退
-        # demo 产出：直接合并（demo 已保证只改目标项）
+        logger.warning(
+            "🔍 ADJUST MERGE: starting | replan_days=%d is_global=%s target_item_id=%s",
+            len(replan_days), action in ("reduce_walking", "change_budget", "change_to_indoor"), target_item_id,
+        )
         for rday in replan_days:
             day_num = rday.get("day")
             if not day_num:
+                logger.warning("🔍 ADJUST MERGE: skipping rday with no day number")
                 continue
             affected_days_set.add(day_num)
 
-            if not target_item_id:
+            # 全局动作（reduce_walking / change_budget）：不需要目标项，直接合并
+            is_global_action = action in ("reduce_walking", "change_budget", "change_to_indoor")
+
+            if not target_item_id and not is_global_action:
                 # 无法确定目标项时，拒绝修改（安全优先）
                 logger.warning("未找到目标项，拒绝修改")
                 trace.append({"step": 35, "action": "no_target", "summary": "未找到目标项", "status": "error"})
                 continue  # 跳过此天，不合并
 
-            # 保护非目标项（无论 LLM 还是 Demo 都需要）
+            if is_global_action:
+                # 全局动作：接受 replan_days 的所有项（过滤无 ID 的幻觉项、去重 place_id）
+                seen_pids: set[str] = set()
+                validated = []
+                for it in rday.get("items", []):
+                    iid = it.get("item_id", "")
+                    if not iid:
+                        continue
+                    pid = it.get("place_id") or ""
+                    itype = it.get("item_type", "")
+                    # 景点去重：同一 place_id 只保留第一次出现
+                    if itype == "attraction" and pid:
+                        if pid in seen_pids:
+                            logger.warning("🔍 ADJUST MERGE: 重复景点 %s (%s) 已跳过", pid, iid)
+                            continue
+                        seen_pids.add(pid)
+                    validated.append(it)
+                rday["items"] = validated
+            else:
+                # 保护非目标项（无论 LLM 还是 Demo 都需要）
                 for orig_day in old_dict.get("days", []):
                     if orig_day.get("day") == day_num:
                         orig_by_id = {it.get("item_id",""): dict(it) for it in orig_day.get("items",[]) if it.get("item_id")}
@@ -333,13 +432,36 @@ class AdjustmentAgent:
             # 合并到 cloned_dict
             for orig_day in cloned_dict.get("days", []):
                 if orig_day.get("day") == day_num:
+                    merged_count = len(rday["items"])
                     orig_day["items"] = rday["items"]
+                    logger.warning(
+                        "🔍 ADJUST MERGE: day=%d merged_items=%d",
+                        day_num, merged_count,
+                    )
                     break
+
+        logger.warning(
+            "🔍 ADJUST MERGE: done | affected_days=%s | cloned_dict days=%d",
+            sorted(affected_days_set),
+            len(cloned_dict.get("days", [])),
+        )
+        for d in cloned_dict.get("days", []):
+            items = d.get("items", [])
+            logger.warning(
+                "🔍 ADJUST MERGE:   day=%d items=%d locked=%d unlocked=%d",
+                d.get("day"), len(items),
+                sum(1 for it in items if it.get("locked")),
+                sum(1 for it in items if not it.get("locked")),
+            )
 
         # ── 6. 重建 Itinerary 对象 + 保存 + 返回 ──────────────────
         try:
             cloned_dict_obj = cloned.model_dump(mode="json")
             for orig_day in cloned_dict_obj.get("days", []):
+                # 修正 walking_distance_m 浮点数
+                w = orig_day.get("walking_distance_m")
+                if isinstance(w, float):
+                    orig_day["walking_distance_m"] = int(round(w))
                 if orig_day.get("day") in affected_days_set:
                     for src_day in cloned_dict.get("days", []):
                         if src_day.get("day") == orig_day["day"]:
@@ -360,6 +482,15 @@ class AdjustmentAgent:
         evaluation = validate_hard_constraints(cloned_dict, requirements or {})
 
         try:
+            # 确保基准版本已存入版本库（前端直传时可能未持久化）
+            if old_itinerary is not None and get_itinerary(itinerary_id, base_version) is None:
+                old_itinerary.version = base_version
+                old_itinerary.parent_version = None
+                save_version(old_itinerary)
+                logger.warning(
+                    "🔍 ADJUST: 基准版本 v%d 未持久化，已自动保存", base_version,
+                )
+
             cloned.version = base_version + 1
             cloned.parent_version = base_version
             saved = save_version(cloned)
@@ -367,6 +498,15 @@ class AdjustmentAgent:
             saved = cloned
 
         diff = diff_versions(itinerary_id, base_version, saved.version)
+        if diff is None and old_dict is not None:
+            # 版本库对比失败时，直接用字典对比兜底
+            from backend.services.diff_service import compute_diff
+            diff = compute_diff(old_dict, cloned_dict,
+                                from_version=base_version, to_version=saved.version)
+            logger.warning(
+                "🔍 ADJUST: diff_versions 返回 None，已用 compute_diff 兜底, changes=%d",
+                len(diff.changes) if diff else 0,
+            )
 
         trace.append({
             "step": 5, "agent": "adjustment_agent",
@@ -377,6 +517,16 @@ class AdjustmentAgent:
 
         from backend.services.version_service import model_dump_with_places
         final_itinerary = model_dump_with_places(cloned)
+
+        logger.warning(
+            "🔍 ADJUST RESULT: itinerary_id=%s version=%s days=%d total_items=%d affected=%s diff_changes=%d",
+            final_itinerary.get("itinerary_id", "?"),
+            final_itinerary.get("version", "?"),
+            len(final_itinerary.get("days", [])),
+            sum(len(d.get("items", [])) for d in final_itinerary.get("days", [])),
+            sorted(affected_days_set),
+            len(diff.changes) if diff else 0,
+        )
 
         return {
             "itinerary": final_itinerary,
@@ -474,6 +624,10 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
     day_m = re.search(r'目标天[:\s]*(\d+)', prompt)
     if day_m:
         target_day = int(day_m.group(1))
+    logger.warning(
+        "🔍 DEMO ENTRY: action=%s target_day=%s (from prompt)",
+        action, target_day,
+    )
     item_m = re.search(r'目标行程项[:\s]*(\S+)', prompt)
     if item_m:
         target_item_id = item_m.group(1)
@@ -514,6 +668,10 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
             break
 
     if not target_day_obj:
+        logger.warning(
+            "🔍 DEMO: target_day_obj is None! target_day=%s days_count=%d",
+            target_day, len(days),
+        )
         return json.dumps({
             "days": [],
             "affected_days": [],
@@ -549,6 +707,142 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
                     pass
     logger.info("Demo LLM: action=%s keywords=%s alt_places=%d orig_text=%s",
                 action, keywords, len(alt_places), orig_text[:60])
+
+    # ── reduce_walking 全局处理：遍历所有天 ──────────────────────
+    if action == "reduce_walking":
+        logger.warning(
+            "🔍 DEMO REDUCE: days=%d locked_ids=%d",
+            len(days), len(locked_ids),
+        )
+        all_result_days = []
+        all_change_log = []
+        for d in days:
+            day_num = d.get("day", 1)
+            day_items = d.get("items", [])
+            day_modified = []
+            day_compressed = False
+            last_attr_idx = -1
+
+            for idx, item in enumerate(day_items):
+                iid = item.get("item_id", "")
+                it = dict(item)
+                if iid in locked_ids or item.get("locked"):
+                    day_modified.append(it)
+                    continue
+                if it.get("item_type") == "attraction":
+                    last_attr_idx = len(day_modified)
+                    dur = it.get("duration_minutes", 60)
+                    logger.warning(
+                        "🔍 DEMO REDUCE: day=%d item=%s type=%s dur=%d locked=%s",
+                        day_num, iid, it.get("item_type"), dur, item.get("locked"),
+                    )
+                    if dur > 90:
+                        it["duration_minutes"] = int(dur * 0.6)
+                        it["end_time"] = _shift_time(it["start_time"], it["duration_minutes"])
+                        it["note"] = "步行强度已降低（Demo LLM）"
+                        day_compressed = True
+                        all_change_log.append(f"Day{day_num} {it.get('item_id','')} 时长压缩")
+                day_modified.append(it)
+
+            # 若无景点可压缩，移除最后一个景点以减少步行
+            if not day_compressed and last_attr_idx >= 0:
+                removed = day_modified.pop(last_attr_idx)
+                all_change_log.append(
+                    f"Day{day_num} 移除景点 {removed.get('item_id','')} 以减少步行"
+                )
+                logger.warning(
+                    "🔍 DEMO REDUCE: day=%d no compressible attractions, removing last: %s",
+                    day_num, removed.get("item_id"),
+                )
+
+            new_cost = sum(float(it.get("total_cost", 0) or 0) for it in day_modified)
+            all_result_days.append({
+                "day": day_num,
+                "date": d.get("date", ""),
+                "items": day_modified,
+                "daily_cost": round(new_cost, 2),
+                "walking_distance_m": d.get("walking_distance_m", 0),
+                "start_time": day_modified[0]["start_time"] if day_modified else "09:00",
+                "end_time": day_modified[-1]["end_time"] if day_modified else "18:00",
+            })
+
+        if not all_change_log:
+            # 极端兜底：没有任何可操作项
+            all_change_log.append("已尝试减少步行（无可压缩景点或移除项）")
+
+        result = {
+            "days": all_result_days,
+            "affected_days": [d.get("day") for d in days],
+            "replan_notes": all_change_log,
+        }
+        logger.info("Demo LLM reduce_walking: %d days, changes=%d",
+                    len(all_result_days), len(all_change_log))
+        return json.dumps(result, ensure_ascii=False)
+
+    # ── change_to_indoor 全局处理：遍历所有天，替换户外景点为室内 ──
+    if action == "change_to_indoor":
+        # 只取景点类型，排除误入的餐厅
+        indoor_places = [
+            p for p in (alt_places or [])
+            if isinstance(p, dict) and p.get("place_type") == "attraction"
+        ]
+        all_result_days = []
+        all_change_log = []
+        indoor_idx = 0
+        for d in days:
+            day_num = d.get("day", 1)
+            day_items = d.get("items", [])
+            day_modified = []
+            for item in day_items:
+                iid = item.get("item_id", "")
+                it = dict(item)
+                if iid in locked_ids or item.get("locked"):
+                    day_modified.append(it)
+                    continue
+                if it.get("item_type") == "attraction":
+                    place = it.get("_place") or {}
+                    tags = place.get("tags", []) or []
+                    is_indoor = any("室内" in (t or "") for t in tags)
+                    if is_indoor:
+                        day_modified.append(it)
+                        continue
+                    # 户外景点 → 尝试替换为室内
+                    if indoor_idx < len(indoor_places):
+                        alt = indoor_places[indoor_idx]
+                        indoor_idx += 1
+                        it["place_id"] = alt.get("place_id", it.get("place_id", ""))
+                        it["_place"] = alt
+                        it["note"] = alt.get("name", "室内替代景点")
+                        if alt.get("price") is not None:
+                            it["cost_per_person"] = float(alt["price"])
+                            it["total_cost"] = float(alt["price"])
+                        all_change_log.append(
+                            f"Day{day_num} {iid} → 室内: {alt.get('name', '替代')}"
+                        )
+                    else:
+                        # 无替代资源：保留原景点，仅加备注
+                        it["note"] = (it.get("note") or "") + "（建议替换为室内）"
+                        all_change_log.append(f"Day{day_num} {iid} 无室内替代，保留")
+                day_modified.append(it)
+            new_cost = sum(float(it.get("total_cost", 0) or 0) for it in day_modified)
+            all_result_days.append({
+                "day": day_num, "date": d.get("date", ""), "items": day_modified,
+                "daily_cost": round(new_cost, 2),
+                "walking_distance_m": d.get("walking_distance_m", 0),
+                "start_time": day_modified[0]["start_time"] if day_modified else "09:00",
+                "end_time": day_modified[-1]["end_time"] if day_modified else "18:00",
+            })
+        if not all_change_log:
+            all_change_log.append("未找到可替换的户外景点，行程保持不变")
+        result = {
+            "days": all_result_days,
+            "affected_days": [d.get("day") for d in days],
+            "replan_notes": all_change_log,
+        }
+        logger.info("Demo LLM change_to_indoor: %d days, changes=%d",
+                    len(all_result_days), len(all_change_log))
+        return json.dumps(result, ensure_ascii=False)
+
     modified_items = []
     change_log = []
 
@@ -572,20 +866,7 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
             modified_items.append(it)
             continue
 
-        if action == "change_to_indoor" and item_type == "attraction":
-            # 户外景点 → 改为室内
-            it["note"] = "已替换为室内方案（Demo LLM）" if not note else note + "；室内替代"
-            it["place_id"] = f"{place_id}_indoor" if place_id else "indoor_place_001"
-            it["total_cost"] = max(0, it.get("total_cost", 0) - 20)
-            change_log.append(f"{it.get('start_time','')} {it.get('item_id','')} → 室内")
-        elif action == "reduce_walking":
-            # 减少步行：缩短部分景点的 duration
-            if item_type == "attraction" and it.get("duration_minutes", 60) > 90:
-                it["duration_minutes"] = int(it["duration_minutes"] * 0.6)
-                it["end_time"] = _shift_time(it["start_time"], it["duration_minutes"])
-                it["note"] = "步行强度已降低（Demo LLM）"
-                change_log.append(f"{it.get('item_id','')} 时长压缩")
-        elif action == "replace_attraction" and item_type == "attraction":
+        if action == "replace_attraction" and item_type == "attraction":
             # 替换景点：优先用推荐服务返回的真实替代地点
             alt_place = _pick_replacement(alt_places, item_type)
             if alt_place:
@@ -772,8 +1053,8 @@ def _extract_keywords(original_text: str, action: str) -> list[str]:
     if not original_text:
         return []
 
-    # reduce_walking / change_budget 不按关键词筛选（全局调整）
-    if action in ("reduce_walking", "change_budget"):
+    # reduce_walking / change_budget / change_to_indoor 不按关键词筛选（全局调整）
+    if action in ("reduce_walking", "change_budget", "change_to_indoor"):
         return []
 
     # 常见否定/替换前缀（按长度降序，同长时"替换"优先于"换成"避免拆坏"替换成"）

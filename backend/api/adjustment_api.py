@@ -17,10 +17,9 @@ from backend.schemas.modification import ModificationRequest
 from backend.agents.adjustment_agent import AdjustmentAgent
 from backend.agents.coordinator_agent import (
     _normalize_item_types,
+    _normalize_itinerary,
     _sync_replaced_places,
     _extract_places_from_itinerary,
-    _enrich_itinerary_display,
-    _compute_itinerary_routes,
 )
 
 router = APIRouter(prefix="/api/v1/itineraries", tags=["adjustment"])
@@ -106,15 +105,14 @@ def _make_alt_fetcher(session_id: str = "", itinerary_id: str = ""):
 
 
 def _post_process_modified_itinerary(itinerary: dict) -> dict:
-    """对修改后的行程做后处理：字段修正 + 名称补全 + 路线重算。"""
+    """对修改后的行程做后处理——与规划 Agent 使用相同的标准化逻辑。"""
     if not itinerary or not itinerary.get("days"):
         return itinerary
     _normalize_item_types(itinerary)
     _sync_replaced_places(itinerary)
     _places = _extract_places_from_itinerary(itinerary)
     if _places:
-        _enrich_itinerary_display(itinerary, _places)
-        _compute_itinerary_routes(itinerary, _places)
+        _normalize_itinerary(itinerary, _places)
     return itinerary
 
 

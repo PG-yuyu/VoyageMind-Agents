@@ -102,6 +102,7 @@ def generate_itinerary(
             people=people,
             lunch_used=lunch_used,
             dinner_used=dinner_used,
+            is_last_day=(day_num == days_count),
         )
 
         daily_cost = sum(
@@ -154,6 +155,7 @@ def _build_day_timeline(
     people: int,
     lunch_used: set[str] | None = None,
     dinner_used: set[str] | None = None,
+    is_last_day: bool = False,
 ) -> tuple[list[ItineraryItem], float, int]:
     """为一天构建详细的行程时间轴。
 
@@ -342,13 +344,13 @@ def _build_day_timeline(
     if _parse_minutes(current_time) < _parse_minutes("17:00") and not evening_attrs:
         current_time = "17:00"
 
-    # ── 返回酒店 ────────────────────────────────────────────────────
+    # ── 返回酒店 / 返程（最后一天） ─────────────────────────────────
     items.append(_make_item(
         day_num=day_num, idx=item_idx, item_type=ItemType.RETURN,
         place_id=hotel_place_id, start=current_time,
         end=_add_minutes(current_time, 15),
         duration=15, cost_per_person=0, people=people, locked=True,
-        note="返回酒店",
+        note="返程" if is_last_day else "返回酒店",
     ))
 
     daily_cost = sum(it.total_cost for it in items)

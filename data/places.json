@@ -70,7 +70,7 @@
       "城市观景",
       "室内外混合"
     ],
-    "price": null,
+    "price": 100.0,
     "open_time": null,
     "coordinate": {
       "longitude": 117.181643,
@@ -130,7 +130,7 @@
       "建筑装饰",
       "室内外混合"
     ],
-    "price": null,
+    "price": 50.0,
     "open_time": null,
     "coordinate": {
       "longitude": 117.202302,
@@ -150,7 +150,7 @@
       "近代建筑",
       "室内展览"
     ],
-    "price": null,
+    "price": 75.0,
     "open_time": null,
     "coordinate": {
       "longitude": 117.201668,
@@ -170,7 +170,7 @@
       "近代建筑",
       "室内展览"
     ],
-    "price": null,
+    "price": 19.0,
     "open_time": null,
     "coordinate": {
       "longitude": 117.189291,
@@ -250,7 +250,7 @@
       "古建筑",
       "历史展览"
     ],
-    "price": null,
+    "price": 25.0,
     "open_time": null,
     "coordinate": {
       "longitude": 117.189276,
@@ -330,7 +330,7 @@
       "室外园区",
       "动物展区"
     ],
-    "price": null,
+    "price": 30.0,
     "open_time": "08:30-17:00；停止售票和清场时间以现场公告为准",
     "coordinate": {
       "longitude": 117.16531,
@@ -370,7 +370,7 @@
       "近代建筑",
       "室内展览"
     ],
-    "price": null,
+    "price": 0.0,
     "open_time": null,
     "coordinate": {
       "longitude": 117.199516,
@@ -410,7 +410,7 @@
       "滨水空间",
       "城市观景"
     ],
-    "price": null,
+    "price": 90.0,
     "open_time": null,
     "coordinate": {
       "longitude": 117.186217,
@@ -490,7 +490,7 @@
       "民居建筑",
       "城市历史"
     ],
-    "price": null,
+    "price": 0.0,
     "open_time": null,
     "coordinate": {
       "longitude": 117.182769,
@@ -570,7 +570,7 @@
       "博物馆",
       "室内外混合"
     ],
-    "price": null,
+    "price": 25.0,
     "open_time": "周二至周日09:00-16:30；16:00停止入场；周一闭馆",
     "coordinate": {
       "longitude": 117.708257,
@@ -610,7 +610,7 @@
       "舰船展示",
       "室内外混合"
     ],
-    "price": null,
+    "price": 220.0,
     "open_time": null,
     "coordinate": {
       "longitude": 117.808818,

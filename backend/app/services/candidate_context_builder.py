@@ -93,7 +93,32 @@ class CandidateContextBuilder:
 
         filter_policy = self._find_filter(policy, place_type)
         query = self._build_query(city, place_type, filter_policy, limit, context)
-        return self.search_service.search(query)
+        result = self.search_service.search(query)
+
+        # 诊断日志：餐厅为 0 时输出完整查询条件
+        if place_type == "restaurant" and len(result) == 0:
+            import logging
+            _log = logging.getLogger(__name__)
+            _log.warning(
+                "[RESTAURANT DEBUG] 餐厅候选为 0！查询条件: city=%s area=%s "
+                "min_price=%s max_price=%s limit=%s has_filter=%s",
+                query.city, query.area,
+                query.min_price, query.max_price, query.limit,
+                filter_policy is not None,
+            )
+            if filter_policy is not None:
+                _log.warning(
+                    "[RESTAURANT DEBUG] filter_policy: area=%s min_price=%s max_price=%s tags=%s",
+                    filter_policy.area, filter_policy.min_price,
+                    filter_policy.max_price, filter_policy.tags,
+                )
+            # 不设过滤时检查原始库
+            all_raw = self.search_service.search_restaurants(city=city)
+            _log.warning(
+                "[RESTAURANT DEBUG] 不做过滤的餐厅总数: %d", len(all_raw),
+            )
+
+        return result
 
     def _build_query(
         self,

@@ -37,6 +37,16 @@ class RecommendationPolicyAgent:
         )
         policy = self._policy_from_model_output(model_output)
         self._validate_price_limits_are_explicit(context, policy.filters)
+
+        # 诊断日志
+        import logging
+        _log = logging.getLogger(__name__)
+        for fp in policy.filters:
+            _log.warning(
+                "[POLICY DEBUG] type=%s area=%s min_price=%s max_price=%s tags=%s",
+                fp.place_type, fp.area, fp.min_price, fp.max_price, fp.tags,
+            )
+
         return policy
 
     def _context_to_payload(self, context: RecommendationContext) -> dict[str, Any]:

@@ -1130,9 +1130,13 @@ function applyBackendItinerary(backendItinerary) {
         place_id: item.place_id || place.place_id || '',
         item_type: itemType,
         time: item.start_time || '09:00',
-        title: place.name || item.note || item.place_id || itemType,
+        // departure/return 不显示酒店名，直接用 note（"出发"/"返回酒店"）
+        title: (itemType === 'departure' || itemType === 'return')
+          ? (item.note || itemType)
+          : (place.name || item.note || item.place_id || itemType),
         tag: typeToTag(itemType, item, place),
         desc: item.note || place.short_description || '',
+        ragDesc: place.rag_description || '',
         cost: item.total_cost || 0,
         route: routeText,
       }
@@ -1355,7 +1359,7 @@ function openPlaceDetail(item) {
   selectedPlace.value = item.detail || placeDetails[item.title] || {
     image: 'https://images.unsplash.com/photo-1518156677180-95a2893f3e9f?auto=format&fit=crop&w=900&q=80',
     title: item.title,
-    desc: item.desc,
+    desc: item.ragDesc || item.desc,
     tips: [item.tag, item.route, '可根据天气、体力和预算继续调整']
   }
 }
@@ -1558,7 +1562,7 @@ async function analyzeSmartAdjustment() {
               ? newPlace.name
               : (origItem.title || item.note || item.place_id || item.item_type || '行程项')
             const newDesc = placeChanged
-              ? (newPlace?.short_description || item.note || '')
+              ? (newPlace?.rag_description || newPlace?.short_description || item.note || '')
               : (noteChanged ? item.note : (origItem.desc || ''))
             const newDetail = placeChanged && newPlace ? {
               image: 'https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=900&q=80',
@@ -1725,16 +1729,20 @@ async function applySmartAdjustment() {
           const dayIdxMap = origByDayIdx2[dayData.day] || {}
           const uiItems = (dayData.items || []).map((item, ii) => {
             const origItem = dayIdxMap[ii] || {}
-            const effectiveNote = (item.note && item.note !== origItem.desc && !String(item.note || '').startsWith('已替换原'))
-              ? item.note
-              : (origItem.desc || '')
+            const place = item._place || {}
+            const itemType = item.item_type || 'attraction'
+            // 与首次生成完全相同的映射逻辑
+            const title = (itemType === 'departure' || itemType === 'return')
+              ? (item.note || itemType)
+              : (place.name || item.note || item.place_id || itemType)
             return {
               time: item.start_time || origItem.time || '09:00',
-              title: origItem.title || item.note || item.place_id || item.item_type || '行程项',
-              tag: origItem.tag || item.item_type || '普通',
-              desc: effectiveNote,
-              cost: origItem.cost || item.total_cost || 0,
-              route: origItem.route || '',
+              title: title,
+              tag: typeToTag(itemType, item, place),
+              desc: item.note || place.short_description || '',
+              ragDesc: place.rag_description || '',
+              cost: item.total_cost || origItem.cost || 0,
+              route: item.route || origItem.route || '',
             }
           })
           return {

@@ -119,7 +119,26 @@ class PlanningAgent:
             itinerary = self._plan_itinerary(state)
             state.itinerary = itinerary
 
-            # ── Step 2: 完成 ────────────────────────────────────────
+            # ── Step 2: 硬约束校验 + 修复循环（最多 2 次） ──────────
+            state.transition_to(PlanningPhase.HARD_VALIDATING)
+            hard_passed = self._hard_validation_loop(state)
+            if not hard_passed:
+                logger.warning(
+                    "硬约束修复未完全通过: %d issues",
+                    len(state.hard_evaluation.get("issues", [])),
+                )
+
+            # ── Step 3: 软偏好评价 + 优化循环（最多 1 次） ──────────
+            if hard_passed or state.itinerary:
+                state.transition_to(PlanningPhase.SOFT_EVALUATING)
+                soft_passed = self._soft_optimization_loop(state)
+                if not soft_passed:
+                    logger.warning(
+                        "软偏好优化未完全通过: %d issues",
+                        len(state.soft_evaluation.get("issues", [])),
+                    )
+
+            # ── Step 4: 完成 ────────────────────────────────────────
             state.transition_to(PlanningPhase.COMPLETED)
 
             # 保存首版行程
@@ -342,21 +361,20 @@ class PlanningAgent:
         return False
 
     def _repair_itinerary(self, state: PlanningState) -> dict[str, Any]:
-        """LLM 修复行程中的硬约束问题。"""
+        """LLM 修复行程中的硬约束问题。只替换 days 数组，保留 itinerary_id 等顶层字段。"""
+        issues = state.hard_evaluation.get("issues", [])
         prompt = HARD_CONSTRAINT_REPAIR_PROMPT.format(
             current_itinerary=json.dumps(state.itinerary, ensure_ascii=False, indent=2),
-            validation_issues=json.dumps(
-                state.hard_evaluation.get("issues", []),
-                ensure_ascii=False,
-                indent=2,
-            ),
+            validation_issues=json.dumps(issues, ensure_ascii=False, indent=2),
             places=json.dumps(state.places, ensure_ascii=False, indent=2),
         )
         raw = self._llm(prompt)
         data = self._parse_json(raw)
-        # 合并回行程主体
-        if "days" in data:
+        if "days" in data and isinstance(data["days"], list) and len(data["days"]) > 0:
             state.itinerary["days"] = data["days"]
+            logger.info("LLM 硬约束修复完成，更新了 %d 天", len(data["days"]))
+        else:
+            logger.warning("LLM 修复返回空或无效 days，保留原行程")
         return state.itinerary
 
     # ====================================================================

@@ -16,8 +16,13 @@
       "本地风味",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 76,
     "open_time": "周一至周日 09:30-14:30,17:00-21:00",
+=======
+    "price": 76.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.198932,
       "latitude": 39.124989
@@ -612,8 +617,13 @@
       "本地风味",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 98,
     "open_time": "周一至周日 11:00-14:00,17:00-21:00",
+=======
+    "price": 98.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.191889,
       "latitude": 39.154082
@@ -699,8 +709,13 @@
       "中等预算",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 107,
     "open_time": "周一至周日 10:30-23:00",
+=======
+    "price": 107.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.20713,
       "latitude": 39.132001
@@ -785,8 +800,13 @@
       "本地风味",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 129,
     "open_time": "周一至周日 10:30-14:00,17:00-21:00",
+=======
+    "price": 129.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.192617,
       "latitude": 39.147263
@@ -872,8 +892,13 @@
       "本地风味",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 78,
     "open_time": "周一至周五 11:00-14:00；16:30-21:00,周六至周日及节假日 11:00-21:00",
+=======
+    "price": 78.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.196078,
       "latitude": 39.153365
@@ -960,8 +985,13 @@
       "预算友好",
       "早间可用"
     ],
+<<<<<<< Updated upstream
     "price": 7,
     "open_time": "周一至周五 05:30-12:00；周六至周日 05:30-13:00",
+=======
+    "price": 7.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.158832,
       "latitude": 39.170169
@@ -1050,8 +1080,13 @@
       "大众预算",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 70,
     "open_time": "周一至周日 11:00-13:30,17:00-21:00",
+=======
+    "price": 70.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.180817,
       "latitude": 39.09735
@@ -1139,8 +1174,13 @@
       "预算友好",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 23,
     "open_time": "周一至周日 10:30-23:00",
+=======
+    "price": 23.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.198135,
       "latitude": 39.124008
@@ -1227,8 +1267,13 @@
       "中等预算",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 90,
     "open_time": "周一至周日 10:30-14:00,16:30-21:00",
+=======
+    "price": 90.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.2476,
       "latitude": 39.085368
@@ -1311,8 +1356,13 @@
       "本地风味",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 103,
     "open_time": "周一至周日 11:00-14:30,16:30-21:00",
+=======
+    "price": 103.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.739152,
       "latitude": 39.122892
@@ -1398,8 +1448,13 @@
       "预算友好",
       "早间可用"
     ],
+<<<<<<< Updated upstream
     "price": 12,
     "open_time": "周一至周日 06:30-14:00,16:30-19:00",
+=======
+    "price": 12.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.198007,
       "latitude": 39.162949
@@ -1486,8 +1541,13 @@
       "可地图展示",
       "大众预算"
     ],
+<<<<<<< Updated upstream
     "price": 76,
     "open_time": "周一至周日 10:00-17:00,18:00-02:00",
+=======
+    "price": 76.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.745149,
       "latitude": 39.12067
@@ -1569,8 +1629,13 @@
       "可地图展示",
       "中等预算"
     ],
+<<<<<<< Updated upstream
     "price": 94,
     "open_time": "周六至周日 11:30-21:30；周一至周五 11:30-14:30,17:00-21:30",
+=======
+    "price": 94.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.212897,
       "latitude": 39.090011
@@ -1654,8 +1719,13 @@
       "可地图展示",
       "中等预算"
     ],
+<<<<<<< Updated upstream
     "price": 120,
     "open_time": "周一至周日 10:00-03:00",
+=======
+    "price": 120.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.218382,
       "latitude": 39.140812
@@ -1740,8 +1810,13 @@
       "本地风味",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 87,
     "open_time": "周一至周日 11:00-14:00,16:30-21:00",
+=======
+    "price": 87.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.171588,
       "latitude": 39.142474
@@ -1913,8 +1988,13 @@
       "早间可用",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 16,
     "open_time": "周一至周日 00:00-24:00",
+=======
+    "price": 16.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.179898,
       "latitude": 39.114936
@@ -2003,7 +2083,11 @@
       "早间可用",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 40,
+=======
+    "price": 40.0,
+>>>>>>> Stashed changes
     "open_time": "24小时营业",
     "coordinate": {
       "longitude": 117.164264,
@@ -2090,7 +2174,11 @@
       "中等预算",
       "本地风味"
     ],
+<<<<<<< Updated upstream
     "price": 81,
+=======
+    "price": 81.0,
+>>>>>>> Stashed changes
     "open_time": null,
     "coordinate": {
       "longitude": 117.193013,
@@ -2188,8 +2276,13 @@
       "本地风味",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 86,
     "open_time": "周一至周日 11:00-14:00,16:30-22:00 2026-05-01至2026-05-05 周一至周日 11:00-14:00,17:00-22:00",
+=======
+    "price": 86.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.196007,
       "latitude": 39.128056
@@ -2276,8 +2369,13 @@
       "早间可用",
       "夜间可用"
     ],
+<<<<<<< Updated upstream
     "price": 18,
     "open_time": "周一至周日 20:00-06:00",
+=======
+    "price": 18.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.22061,
       "latitude": 39.093322
@@ -2362,8 +2460,13 @@
       "可地图展示",
       "大众预算"
     ],
+<<<<<<< Updated upstream
     "price": 58,
     "open_time": "周二至周日 11:00-14:30,17:00-21:30",
+=======
+    "price": 58.0,
+    "open_time": null,
+>>>>>>> Stashed changes
     "coordinate": {
       "longitude": 117.16387,
       "latitude": 39.108511

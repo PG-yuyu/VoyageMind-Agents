@@ -533,6 +533,24 @@ class CoordinatorAgent:
             if isinstance(items, list):
                 places.extend(items)
 
+        # ── RAG 实时补全：从 RAG 文档索引补全价格等缺失字段 ──────
+        try:
+            from backend.services.rag_place_enricher import rag_index
+            enriched_count = 0
+            for p in places:
+                pid = p.get("place_id", "")
+                old_price = p.get("price")
+                rag_index.enrich(p)
+                if p.get("price") != old_price:
+                    enriched_count += 1
+            if enriched_count:
+                logger.warning(
+                    "RAG 实时补全: %d/%d 个地点价格已从 RAG 文档更新",
+                    enriched_count, len(places),
+                )
+        except Exception as _rag_exc:
+            logger.warning("RAG 实时补全失败（不影响流程）: %s", _rag_exc)
+
         logger.warning(
             "🔍 DEBUG: _generate_itinerary 入口 — places=%d (attr=%d, hotel=%d, rest=%d), routes=%d",
             len(places),
@@ -610,12 +628,9 @@ class CoordinatorAgent:
                 logger.error("🔍 DEBUG: 规则引擎也失败! error=%s", exc, exc_info=True)
                 return None
 
-        # ── 后处理：注入 _place 引用 + 路线计算 ──
-        # 注意：不再需要 _normalize_itinerary_structure，
-        # build_complete_itinerary 已产出标准结构。
+        # ── 后处理：标准化结构 + 注入 _place + 路线计算 ──
         if itinerary:
-            _enrich_itinerary_display(itinerary, places)
-            _compute_itinerary_routes(itinerary, places)
+            _normalize_itinerary(itinerary, places)
 
             # 保存到版本库，确保后续调整 Agent 能查到
             try:
@@ -817,6 +832,82 @@ class CoordinatorAgent:
 # ============================================================================
 
 
+def _normalize_itinerary(itinerary: dict, places: list[dict]) -> dict:
+    """行程结构标准化后处理——规划 Agent 和调整 Agent 共用。
+
+    确保 departure/hotel/return 的 note 和位置与 itinerary_builder 一致。
+    """
+    total_days = len(itinerary.get("days", []))
+    hotel_place_id = itinerary.get("hotel_place_id", "")
+
+    for day_data in itinerary.get("days", []):
+        day_num = day_data.get("day", 1)
+        is_last_day = (day_num == total_days)
+        items = day_data.get("items", [])
+
+        for item in items:
+            itype = item.get("item_type", "")
+            if itype == "departure":
+                item["note"] = "出发"
+            elif itype == "return":
+                item["note"] = "返程" if is_last_day else "返回酒店"
+
+        # 移除旧 hotel item（逻辑统一重建）
+        items = [it for it in items if it.get("item_type") != "hotel"]
+        day_data["items"] = items
+
+        # 最后一天不需要酒店
+        if is_last_day or not hotel_place_id:
+            continue
+
+        # 在 return 之前插入 hotel item
+        insert_at = len(items)
+        for i, it in enumerate(items):
+            if it.get("item_type") == "return":
+                insert_at = i
+                break
+
+        # 获取酒店名称和价格
+        hotel_name = ""
+        hotel_price = 0.0
+        for p in places:
+            if p.get("place_id") == hotel_place_id:
+                hotel_name = p.get("name", "")
+                hotel_price = float(p.get("price", 0) or 0)
+                break
+        # places 列表中没有则从 RAG 索引查找
+        if hotel_price == 0:
+            try:
+                from backend.services.rag_place_enricher import rag_index
+                p = rag_index.get_price(hotel_place_id)
+                if p is not None and p > 0:
+                    hotel_price = float(p)
+            except Exception:
+                pass
+
+        hotel_item = {
+            "item_id": f"day{day_num}_item_hotel",
+            "day": day_num,
+            "item_type": "hotel",
+            "place_id": hotel_place_id,
+            "start_time": day_data.get("start_time", "09:00"),
+            "end_time": day_data.get("end_time", "18:00"),
+            "duration_minutes": 0,
+            "route_from_previous_id": None,
+            "cost_per_person": hotel_price,
+            "total_cost": hotel_price,
+            "locked": True,
+            "note": hotel_name or "酒店",
+        }
+        items.insert(insert_at, hotel_item)
+
+    # 注入 _place + RAG 介绍 + 路线计算
+    _enrich_itinerary_display(itinerary, places)
+    _compute_itinerary_routes(itinerary, places)
+
+    return itinerary
+
+
 def _enrich_itinerary_display(itinerary: dict, places: list[dict]) -> None:
     """为行程 items 注入 _place 引用 + 补全空 note，确保前端能显示中文名。
 
@@ -841,18 +932,30 @@ def _enrich_itinerary_display(itinerary: dict, places: list[dict]) -> None:
         "transport": "交通",
     }
 
+    # 从 RAG 文档补全所有地点的自然语言介绍
+    try:
+        from backend.services.rag_place_enricher import rag_index
+        for p in place_map.values():
+            rag_index.enrich(p)
+            # 清理旧数据污染：若 description 过长（RAG 文本），重置为短描述
+            desc = p.get("description") or ""
+            if len(desc) > 120:
+                p["description"] = ""
+    except Exception:
+        pass
+
     for day_data in itinerary.get("days", []):
         for item in day_data.get("items", []):
             pid = item.get("place_id") or ""
             place = place_map.get(pid) if pid else None
 
-            # 注入 _place 引用
+            # 注入 _place 引用（已含 RAG 描述）
             if place:
                 item["_place"] = place
 
-            # 如果 note 为空，用地点名称补全
+            # 如果 note 为空，用地点名称补全（仅用 name，不使用可能被污染的 description 字段）
             if not item.get("note") and place:
-                item["note"] = place.get("name") or place.get("short_description", "")
+                item["note"] = place.get("name") or ""
 
             # 检测 _place 与 note 是否指向不同地点（LLM 替换了但没同步 place_id）
             if place and item.get("note"):
@@ -923,6 +1026,12 @@ def _sync_replaced_places(itinerary: dict) -> None:
 
     for day_data in itinerary.get("days", []):
         for item in day_data.get("items", []):
+            # 跳过结构性标记项（departure/return/hotel/dinner/lunch），
+            # 这些不是景点，note 中的"酒店""返回"等文字不应被当作地点名匹配
+            itype = item.get("item_type", "")
+            if itype in ("departure", "return", "hotel", "lunch", "dinner", "rest"):
+                continue
+
             note = item.get("note") or ""
             pid = item.get("place_id") or ""
             place = item.get("_place") or {}
@@ -1108,12 +1217,15 @@ def _compute_itinerary_routes(itinerary: dict, places: list[dict]) -> None:
                 item["_route_from_prev_place_id"] = prev_pid
                 item["_route_distance_m"] = round(dist_m, 1)
                 item["_route_duration_minutes"] = dur_min
+                item["_route_mode"] = mode
                 # 前端可直接展示的路线文本
                 if dist_m >= 1000:
                     item["route"] = f"{mode}约 {dur_min} 分钟 ({dist_m / 1000:.1f} 公里)"
                 else:
                     item["route"] = f"{mode}约 {dur_min} 分钟 ({dist_m:.0f} 米)"
-                total_walking += dist_m
+                # 仅步行路段计入步行距离
+                if mode == "步行":
+                    total_walking += dist_m
                 # 将这段路线耗时写入上一个 item，供 _resequence_times 使用
                 if prev_item is not None:
                     prev_item["_route_to_next_duration_minutes"] = dur_min
@@ -1122,9 +1234,8 @@ def _compute_itinerary_routes(itinerary: dict, places: list[dict]) -> None:
             prev_coord = coord
             prev_item = item
 
-        # 更新每日步行总距离（优先用计算值）
-        if total_walking > 0:
-            day_data["walking_distance_m"] = round(total_walking, 1)
+        # 更新每日步行总距离（仅步行路段，非公交/驾车），转为 int 匹配 schema
+        day_data["walking_distance_m"] = int(round(total_walking)) if total_walking > 0 else 0
 
     # ── 用实际路线耗时重新计算时间轴 ─────────────────────────
     for day_data in itinerary.get("days", []):
@@ -1580,9 +1691,10 @@ def _resequence_times(
             # 出发后留 15 分钟缓冲，避免第一个景点与出发时间重叠
             current = current + 15
         elif itype == "hotel":
-            # hotel 跨越全天，不占时间槽
-            item["start_time"] = daily_start
-            item["end_time"] = daily_end
+            # 酒店费用项：不占时间槽，放在返程之前显示
+            # current 此时处于 dinner 之后、return 之前
+            item["start_time"] = _fmt(current)
+            item["end_time"] = _fmt(current)
             item["duration_minutes"] = 0
         elif itype == "attraction":
             dur = item.get("duration_minutes") or 90
@@ -1596,17 +1708,13 @@ def _resequence_times(
             current = current + dur + buffer
         elif itype in ("lunch", "dinner"):
             dur = 60
-            # 钳制到合理时段
             if itype == "lunch":
                 earliest = _parse("11:30")
-                latest = _parse("13:30")
             else:
                 earliest = _parse("17:30")
-                latest = _parse("19:30")
+            # 只向前钳制（若还没到用餐窗口），不向后倒退
             if current < earliest:
                 current = earliest
-            if current > latest:
-                current = latest
             item["start_time"] = _fmt(current)
             item["end_time"] = _fmt(current + dur)
             item["duration_minutes"] = dur
@@ -1632,3 +1740,6 @@ def _resequence_times(
             item["start_time"] = _fmt(current)
             item["end_time"] = _fmt(current + dur)
             current = current + dur + 5
+
+    # 按 start_time 排序，保证时间线始终按时间递增展示
+    day_data["items"].sort(key=lambda it: it.get("start_time", "00:00"))

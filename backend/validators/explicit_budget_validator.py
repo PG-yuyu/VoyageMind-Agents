@@ -33,7 +33,7 @@ def validate_budget(
         return [
             ValidationIssue(
                 code=ValidationCode.BUDGET_EXCEEDED,
-                severity=Severity.WARNING,
+                severity=Severity.ERROR,
                 day=None,
                 item_id=None,
                 message=f"总费用 ¥{total_cost:.0f} 超出预算 ¥{total_budget:.0f}",

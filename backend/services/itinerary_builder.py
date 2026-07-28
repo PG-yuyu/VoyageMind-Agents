@@ -154,11 +154,11 @@ def build_complete_itinerary(
         item_idx = 0
         cur = daily_start  # 当前时间游标
 
-        # 1. departure
+        # 1. departure（时间标记）
         items.append(_make_item(
             day_num, item_idx, "departure", hotel_place_id,
             start=cur, end=cur, duration=0,
-            note=f"从{(hotel or {}).get('name', '酒店')}出发",
+            note="出发",
             locked=True, people=people,
         ))
         item_idx += 1
@@ -221,12 +221,27 @@ def build_complete_itinerary(
             item_idx += 1
             cur = dinner_end
 
-        # 6. return
+        # 5.5. hotel（仅非最后一天需要住宿，放在 return 之前）
+        is_last_day = (day_num == req_days)
+        if hotel and not is_last_day:
+            hotel_price = float(hotel.get("price", 0) or 0)
+            items.append(_make_item(
+                day_num, item_idx, "hotel", hotel_place_id,
+                start=cur, end=cur, duration=0,
+                cost_per_person=hotel_price, people=people,
+                note=hotel.get("name", "酒店"),
+                locked=True,
+                _place=hotel,
+            ))
+            item_idx += 1
+
+        # 6. return（最后一天显示"返程"，其余显示"返回酒店"）
         ret_end = _add_minutes_str(cur, RETURN_DURATION)
+        return_note = "返程" if is_last_day else "返回酒店"
         items.append(_make_item(
             day_num, item_idx, "return", hotel_place_id,
             start=cur, end=ret_end, duration=RETURN_DURATION,
-            note="返回酒店",
+            note=return_note,
             locked=True, people=people,
         ))
 
