@@ -2388,8 +2388,8 @@ async function submitAuth() {
                   >
                     <span class="voice-bubble__icon"></span>
                     <span class="voice-bubble__waves"><i></i><i></i><i></i></span>
-                    <span class="voice-bubble__label">{{ message.text || '语音' }}</span>
-                    <span class="voice-bubble__time">语音</span>
+                    <span class="voice-bubble__label">语音消息</span>
+                    <span class="voice-bubble__time">点击播放</span>
                     <audio
                       :src="message.audioUrl"
                       :type="message.audioType || 'audio/webm'"

@@ -130,8 +130,8 @@
               >
                 <span class="voice-bubble__icon"></span>
                 <span class="voice-bubble__waves"><i></i><i></i><i></i></span>
-                <span class="voice-bubble__label">{{ message.content || '语音导游问题' }}</span>
-                <span class="voice-bubble__time">语音</span>
+                <span class="voice-bubble__label">语音提问</span>
+                <span class="voice-bubble__time">点击播放</span>
                 <audio
                   :src="message.audioUrl"
                   :type="message.audioType || 'audio/webm'"
@@ -1702,23 +1702,24 @@ function clamp(value, min, max) {
 
 .guide-tts {
   display: grid;
-  gap: 10px;
-  width: min(390px, 100%);
-  margin-top: 2px;
-  padding: 12px;
-  border: 1px solid #b9c8ff;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #f7faff, #eef3ff);
-  box-shadow: 0 12px 28px rgba(79, 101, 255, 0.13);
+  gap: 9px;
+  width: min(360px, 100%);
+  margin-top: 6px;
+  padding: 12px 13px;
+  border: 1px solid #dce7f2;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(31, 41, 55, 0.07);
 }
 
 .guide-tts.ready {
-  border-color: #9ee2d8;
-  background: linear-gradient(180deg, #f8fbff, #e9fbf7);
+  border-color: #cdece7;
+  background: #fbfefd;
 }
 
 .guide-tts.playing {
-  box-shadow: 0 14px 30px rgba(15, 118, 110, 0.18);
+  border-color: #9ee2d8;
+  box-shadow: 0 12px 26px rgba(20, 184, 166, 0.13);
 }
 
 .guide-tts__head {
@@ -1730,22 +1731,22 @@ function clamp(value, min, max) {
 
 .guide-tts__mark {
   display: inline-grid;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   flex: 0 0 auto;
   place-items: center;
   border-radius: 999px;
-  background: #4f65ff;
-  box-shadow: 0 8px 16px rgba(79, 101, 255, 0.25);
+  background: #ecfdf9;
+  box-shadow: inset 0 0 0 1px #cdece7;
 }
 
 .guide-tts__mark::before,
 .guide-tts__mark::after {
   display: block;
   width: 3px;
-  height: 10px;
+  height: 9px;
   border-radius: 999px;
-  background: #fff;
+  background: #14a595;
   content: "";
 }
 
@@ -1757,42 +1758,42 @@ function clamp(value, min, max) {
 .guide-tts__head strong {
   min-width: 0;
   color: #172033;
-  font-size: 14px;
-  font-weight: 950;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .guide-tts__head small {
   margin-left: auto;
-  padding: 4px 8px;
+  padding: 3px 8px;
   border-radius: 999px;
-  background: #fff;
-  color: #4f65ff;
-  font-size: 12px;
-  font-weight: 900;
+  background: #f4f7fb;
+  color: #69778b;
+  font-size: 11px;
+  font-weight: 850;
 }
 
 .guide-tts__player {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 118px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 11px;
 }
 
 .guide-tts__button {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-width: 118px;
-  min-height: 42px;
+  gap: 8px;
+  min-width: 0;
+  min-height: 38px;
   justify-content: center;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #4f65ff, #14b8a6);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 950;
-  box-shadow: 0 12px 22px rgba(79, 101, 255, 0.24);
+  padding: 0 12px;
+  border: 1px solid #dce7f2;
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #172033;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: none;
   cursor: pointer;
 }
 
@@ -1802,14 +1803,16 @@ function clamp(value, min, max) {
 }
 
 .guide-tts__button.playing {
-  background: linear-gradient(135deg, #0f766e, #14b8a6);
-  box-shadow: 0 12px 22px rgba(15, 118, 110, 0.22);
+  border-color: #9ee2d8;
+  background: #ecfdf9;
+  color: #0f766e;
+  box-shadow: none;
 }
 
 .guide-tts__button span {
   color: inherit;
-  font-size: 13px;
-  font-weight: 950;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .guide-tts__icon {
@@ -1820,7 +1823,7 @@ function clamp(value, min, max) {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 999px;
-  background: currentColor;
+  background: linear-gradient(135deg, #4f65ff, #14b8a6);
 }
 
 .guide-tts__icon::before {
@@ -1856,7 +1859,7 @@ function clamp(value, min, max) {
 
 .guide-tts__timeline input[type="range"] {
   width: 100%;
-  height: 6px;
+  height: 4px;
   margin: 0;
   accent-color: #0f766e;
   cursor: pointer;
@@ -1873,16 +1876,16 @@ function clamp(value, min, max) {
   justify-content: space-between;
   gap: 8px;
   color: #5b687b;
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   font-weight: 850;
 }
 
 .guide-tts__status {
   margin: -2px 0 0;
-  color: #d9364f;
-  font-size: 12px;
-  font-weight: 850;
+  color: #69778b;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .guide-tts audio {
@@ -1890,7 +1893,7 @@ function clamp(value, min, max) {
 }
 
 .guide-voice-bubble {
-  width: min(300px, 100%);
+  width: min(286px, 100%);
 }
 
 .guide-panel__quick {

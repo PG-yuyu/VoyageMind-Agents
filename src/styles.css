@@ -672,55 +672,86 @@ textarea {
 
 .voice-bubble {
   display: inline-grid;
-  grid-template-columns: 18px 42px minmax(92px, 1fr) auto;
+  grid-template-columns: 24px 42px minmax(72px, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  width: min(330px, 100%);
-  min-height: 44px;
-  padding: 10px 14px;
-  border: 1px solid #b9c8ff;
+  gap: 10px;
+  width: min(286px, 100%);
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid rgba(156, 176, 255, 0.42);
   border-radius: 18px 18px 6px 18px;
-  background: linear-gradient(135deg, #eaf1ff, #f8fbff);
+  background: #f6f9ff;
   color: #172033;
   text-align: left;
   cursor: pointer;
+  box-shadow: 0 8px 20px rgba(79, 101, 255, 0.08);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.voice-bubble:hover {
+  border-color: rgba(79, 101, 255, 0.48);
+  box-shadow: 0 12px 24px rgba(79, 101, 255, 0.11);
+  transform: translateY(-1px);
 }
 
 .voice-bubble__icon {
+  position: relative;
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #4f65ff, #28b7b0);
+  box-shadow: 0 8px 16px rgba(79, 101, 255, 0.18);
+}
+
+.voice-bubble__icon::before {
   width: 0;
   height: 0;
-  border-top: 7px solid transparent;
-  border-bottom: 7px solid transparent;
-  border-left: 11px solid #4f65ff;
+  margin-left: 2px;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid #fff;
+  content: "";
 }
 
 .voice-bubble.playing .voice-bubble__icon {
-  width: 12px;
-  height: 14px;
+  grid-template-columns: repeat(2, 3px);
+  gap: 3px;
+}
+
+.voice-bubble.playing .voice-bubble__icon::before,
+.voice-bubble.playing .voice-bubble__icon::after {
+  width: 3px;
+  height: 10px;
+  margin: 0;
   border: 0;
-  border-left: 4px solid #4f65ff;
-  border-right: 4px solid #4f65ff;
+  border-radius: 999px;
+  background: #fff;
+  content: "";
 }
 
 .voice-bubble__waves {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 3px;
 }
 
 .voice-bubble__waves i {
-  width: 4px;
-  height: 10px;
+  width: 3px;
+  height: 9px;
   border-radius: 999px;
-  background: #8ea0ff;
+  background: #7f93ff;
+  opacity: 0.7;
 }
 
 .voice-bubble__waves i:nth-child(2) {
-  height: 18px;
+  height: 16px;
 }
 
 .voice-bubble__waves i:nth-child(3) {
-  height: 26px;
+  height: 22px;
 }
 
 .voice-bubble.playing .voice-bubble__waves i {
@@ -738,16 +769,16 @@ textarea {
 .voice-bubble__label {
   overflow: hidden;
   color: #253248;
-  font-size: 14px;
-  font-weight: 850;
+  font-size: 13px;
+  font-weight: 900;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .voice-bubble__time {
-  color: #748196;
-  font-size: 12px;
-  font-weight: 900;
+  color: #7a879a;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .voice-bubble audio {
