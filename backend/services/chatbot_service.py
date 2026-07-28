@@ -125,29 +125,56 @@ class ChatbotService:
             return self._fallback_reply(context)
 
     def answer_travel_question(
-        self, question: str, rag_result: dict | None = None
+        self,
+        question: str,
+        rag_result: dict | None = None,
+        search_result: dict | None = None,
+        place_context: dict | None = None,
     ) -> str:
         if not self.available or self.engine is None:
-            return self._fallback_travel_answer(question, rag_result)
+            return self._fallback_travel_answer(
+                question, rag_result, search_result, place_context
+            )
 
         system = (
-            "你是天津本地旅行问答助手。只回答天津旅行相关问题。"
-            "如果提供了资料库证据，就结合证据回答；如果没有可用证据，也要基于通用旅行常识直接回答。"
-            "没有证据时不要用冷冰冰的模板句，不要只说没找到资料。"
-            "回答要自然、具体、简洁，可以给景点、路线、时间段和注意事项。"
+            "你是天津本地旅行问答助手。只回答天津旅行相关问题。回答优先级如下："
+            "1. 如果 RAG 资料充足，优先基于 RAG 回答，并保留资料库来源。"
+            "2. 如果 RAG 没覆盖用户问题，使用联网搜索结果补充，并说明这些信息来自联网检索。"
+            "3. 如果有当前地点或行程上下文，可以用于解释路线、停留时间、游玩建议。"
+            "4. 如果 RAG 和联网搜索都没有结果，才使用通用旅行常识兜底。"
+            "不要伪造来源；不要编造具体票价、开放时间、预约规则。"
             "请使用 Markdown 输出：短开头 + 编号列表或项目符号列表；不要把多个编号挤在同一段。"
         )
-        context = json.dumps(rag_result or {}, ensure_ascii=False)
+        context = json.dumps(
+            {
+                "用户问题": question,
+                "RAG检索结果": rag_result or {},
+                "联网搜索结果": search_result or {},
+                "地点或行程上下文": place_context or {},
+            },
+            ensure_ascii=False,
+        )
         try:
-            return self.chat(system, f"用户问题：{question}\n资料库检索结果：{context}")
+            return self.chat(system, context)
         except Exception as exc:
             self.error = str(exc)
-            return self._fallback_travel_answer(question, rag_result)
+            return self._fallback_travel_answer(
+                question, rag_result, search_result, place_context
+            )
 
     async def stream_travel_question(
-        self, question: str, rag_result: dict | None = None
+        self,
+        question: str,
+        rag_result: dict | None = None,
+        search_result: dict | None = None,
+        place_context: dict | None = None,
     ) -> AsyncIterator[str]:
-        answer = self.answer_travel_question(question, rag_result)
+        answer = self.answer_travel_question(
+            question=question,
+            rag_result=rag_result,
+            search_result=search_result,
+            place_context=place_context,
+        )
         for index in range(0, len(answer), 12):
             yield answer[index : index + 12]
             await asyncio.sleep(0.015)
@@ -211,7 +238,11 @@ class ChatbotService:
         return "已完成需求提取，可以进入推荐、路线、行程规划和规则校验工作流。"
 
     def _fallback_travel_answer(
-        self, question: str, rag_result: dict | None = None
+        self,
+        question: str,
+        rag_result: dict | None = None,
+        search_result: dict | None = None,
+        place_context: dict | None = None,
     ) -> str:
         sources = (rag_result or {}).get("sources") or []
         if sources:
@@ -224,27 +255,46 @@ class ChatbotService:
             lines.append("这些内容来自已上传并入库的旅行资料，可作为当前问答的主要依据。")
             return "\n".join(lines)
 
+        search_sources = (search_result or {}).get("sources") or []
+        if search_sources:
+            lines = ["资料库没有充分覆盖这个问题，我用联网检索补充到这些结果："]
+            for index, source in enumerate(search_sources[:3], start=1):
+                title = source.get("title") or source.get("name") or "联网来源"
+                snippet = source.get("snippet") or source.get("content") or ""
+                url = source.get("url") or source.get("link") or ""
+                suffix = f"（{url}）" if url else ""
+                lines.append(f"{index}. {title}{suffix}：{snippet}")
+            lines.append("以上内容来自联网检索，请以官方页面或现场信息为准。")
+            return "\n".join(lines)
+
         text = question.strip()
+        search_available = (search_result or {}).get("available")
+        unavailable_note = ""
+        if search_available is False:
+            unavailable_note = "联网搜索服务尚未接入真实搜索 API；"
         if "好玩" in text or "景点" in text or "玩" in text:
             return (
-                "当前未引用资料库来源。天津比较适合第一次游玩的地方有：五大道文化旅游区、意式风情区、"
+                f"当前未引用资料库来源；{unavailable_note}先按通用天津旅行常识回答。"
+                "天津比较适合第一次游玩的地方有：五大道文化旅游区、意式风情区、"
                 "海河沿线、古文化街、天津之眼、瓷房子、张学良故居和天津博物馆。"
                 "如果是两日游，可以第一天安排五大道、民园广场、瓷房子、意式风情区和海河夜景；"
                 "第二天安排古文化街、天后宫、南市食品街、天津博物馆或滨海新区。"
             )
         if "雨" in text or "下雨" in text:
             return (
-                "当前未引用资料库来源。天津雨天更适合安排室内或低步行景点，比如天津博物馆、"
+                f"当前未引用资料库来源；{unavailable_note}先按通用天津旅行常识回答。"
+                "天津雨天更适合安排室内或低步行景点，比如天津博物馆、"
                 "张学良故居、瓷房子室内参观、商场休息和相声茶馆。海河夜景可以改成车览，"
                 "五大道如果雨不大也可以缩短为重点建筑外观拍照。"
             )
         if "五大道" in text:
             return (
-                "当前未引用资料库来源。五大道更适合上午或傍晚去，上午人少、光线稳定，适合慢慢看建筑；"
+                f"当前未引用资料库来源；{unavailable_note}先按通用天津旅行常识回答。"
+                "五大道更适合上午或傍晚去，上午人少、光线稳定，适合慢慢看建筑；"
                 "下午如果时间紧，可以只走民园广场、重庆道、大理道一带，控制在 1.5 到 2 小时。"
             )
         return (
-            "当前未引用资料库来源。这个问题可以先按天津旅行常识处理：优先把景点按区域串联，"
+            f"当前未引用资料库来源；{unavailable_note}这个问题可以先按天津旅行常识处理：优先把景点按区域串联，"
             "比如五大道和民园广场放一起，意式风情区和海河夜景放一起，古文化街和南市食品街放一起。"
             "如果涉及开放时间、票价或预约规则，出发前再以景区官方信息为准。"
         )

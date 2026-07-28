@@ -44,7 +44,7 @@ def health() -> ApiResponse:
             "services": {
                 "llm": "up" if chatbot.available else "fallback",
                 "rag": "langchain_rag_adapter",
-                "chroma": "LangChain_RAG/.chroma",
+                "chroma": rag_stats.get("chroma_persist_directory") or "LangChain_RAG/.chroma",
                 "neo4j": "LangChain_RAG configured",
                 "knowledge_base": rag_stats,
                 "amap": "external",

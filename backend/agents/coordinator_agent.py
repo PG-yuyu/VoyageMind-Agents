@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 from typing import Any
 
 from backend.agents.adjustment_agent import AdjustmentAgent
@@ -17,7 +18,8 @@ from backend.services.recommendation_integration_service import (
 from backend.services.requirement_adapter import RequirementAdapter
 from backend.services.session_store import store
 from backend.services.itinerary_planner import generate_itinerary
-from backend.services.version_service import save_version
+from backend.services.version_service import get_itinerary, save_version
+from backend.services.web_search_service import WebSearchService
 from backend.services.workflow_service import WorkflowService
 
 
@@ -40,6 +42,7 @@ class CoordinatorAgent:
         recommendation_integration_service: RecommendationIntegrationService
         | None = None,
         adjustment_agent: AdjustmentAgent | None = None,
+        web_search_service: WebSearchService | None = None,
     ) -> None:
         self.chatbot_service = chatbot_service or ChatbotService()
         self.intent_agent = IntentAgent(self.chatbot_service)
@@ -52,6 +55,7 @@ class CoordinatorAgent:
         self.adjustment_agent = adjustment_agent or AdjustmentAgent(
             alternative_place_fetcher=self._fetch_alternative_places,
         )
+        self.web_search_service = web_search_service or WebSearchService()
 
     def run(self, session_id: str, message: str) -> ChatResponse:
         import time as _time
@@ -69,7 +73,16 @@ class CoordinatorAgent:
             )
             store.agent_traces[session_id] = trace.model_dump()
             rag_result = self.rag_service.query(question=message, top_k=5)
-            reply = self.chatbot_service.answer_travel_question(message, rag_result)
+            search_result = None
+            if self._should_web_search(message, rag_result):
+                search_query = self._build_search_query(message, rag_result)
+                search_result = self.web_search_service.search(search_query, top_k=5)
+            reply = self.chatbot_service.answer_travel_question(
+                question=message,
+                rag_result=rag_result,
+                search_result=search_result,
+                place_context=self._travel_qa_place_context(session_id),
+            )
             store.add_message(session_id, "assistant", reply)
             return ChatResponse(
                 message_id=user_message.message_id,
@@ -745,6 +758,168 @@ class CoordinatorAgent:
             if message.role in {"user", "assistant"} and message.content.strip()
         ]
 
+    def _should_web_search(self, question: str, rag_result: dict | None) -> bool:
+        if not rag_result:
+            return True
+
+        sources = rag_result.get("sources") or []
+        if not sources:
+            return True
+
+        if not rag_result.get("sufficient"):
+            return True
+
+        if self._has_low_rag_score(sources):
+            return True
+
+        if self._rag_content_too_short(rag_result):
+            return True
+
+        if self._missing_question_key_points(question, rag_result):
+            return True
+
+        realtime_words = [
+            "开放时间", "营业时间", "票价", "门票", "预约", "闭馆",
+            "今天", "明天", "现在", "天气", "交通", "堵车", "营业",
+        ]
+        if any(word in question for word in realtime_words):
+            return True
+
+        return False
+
+    def _build_search_query(self, question: str, rag_result: dict | None) -> str:
+        parts = [question.strip()]
+        rewritten_query = ""
+        if isinstance(rag_result, dict):
+            rewritten_query = str(rag_result.get("rewritten_query") or "").strip()
+        if rewritten_query and rewritten_query not in parts:
+            parts.append(rewritten_query)
+        query = " ".join(part for part in parts if part)
+        if "天津" not in query:
+            query = f"天津 {query}"
+        return " ".join(query.split())
+
+    def _travel_qa_place_context(self, session_id: str) -> dict[str, Any]:
+        context: dict[str, Any] = {
+            "session_id": session_id,
+            "recent_conversation": self._conversation_context(session_id)[-6:],
+        }
+
+        requirements = store.requirements.get(session_id)
+        if requirements is not None:
+            context["requirements"] = (
+                requirements.model_dump()
+                if hasattr(requirements, "model_dump")
+                else requirements
+            )
+
+        session = store.sessions.get(session_id)
+        itinerary_id = getattr(session, "current_itinerary_id", None)
+        current_version = getattr(session, "current_version", None)
+        if itinerary_id:
+            itinerary = get_itinerary(itinerary_id, current_version)
+            if itinerary is not None:
+                data = (
+                    itinerary.model_dump(mode="json")
+                    if hasattr(itinerary, "model_dump")
+                    else itinerary
+                )
+                context["current_itinerary"] = self._compact_itinerary_context(data)
+
+        return context
+
+    @staticmethod
+    def _compact_itinerary_context(itinerary: dict[str, Any]) -> dict[str, Any]:
+        days = []
+        for day in itinerary.get("days", [])[:5]:
+            items = []
+            for item in day.get("items", [])[:12]:
+                items.append(
+                    {
+                        "day": item.get("day"),
+                        "item_type": item.get("item_type"),
+                        "place_id": item.get("place_id"),
+                        "start_time": item.get("start_time"),
+                        "end_time": item.get("end_time"),
+                        "note": item.get("note"),
+                    }
+                )
+            days.append(
+                {
+                    "day": day.get("day"),
+                    "start_time": day.get("start_time"),
+                    "end_time": day.get("end_time"),
+                    "items": items,
+                }
+            )
+        return {
+            "itinerary_id": itinerary.get("itinerary_id"),
+            "version": itinerary.get("version"),
+            "days": days,
+        }
+
+    @staticmethod
+    def _has_low_rag_score(sources: list[dict[str, Any]]) -> bool:
+        scores: list[float] = []
+        for source in sources:
+            score = source.get("score")
+            try:
+                value = float(score)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                scores.append(value)
+        return bool(scores) and max(scores) < 0.35
+
+    @staticmethod
+    def _rag_content_too_short(rag_result: dict[str, Any]) -> bool:
+        answer = str(rag_result.get("answer") or "").strip()
+        sources = rag_result.get("sources") or []
+        source_text = " ".join(
+            str(source.get("content") or "").strip() for source in sources
+        ).strip()
+        return len(answer) < 80 and len(source_text) < 160
+
+    def _missing_question_key_points(
+        self, question: str, rag_result: dict[str, Any]
+    ) -> bool:
+        key_points = self._extract_question_key_points(question)
+        if not key_points:
+            return False
+
+        haystack = self._rag_text_for_matching(rag_result)
+        missing = [point for point in key_points if point not in haystack]
+        return len(missing) >= max(1, math.ceil(len(key_points) * 0.5))
+
+    @staticmethod
+    def _extract_question_key_points(question: str) -> list[str]:
+        known_points = [
+            "开放时间", "营业时间", "票价", "门票", "预约", "闭馆",
+            "交通", "堵车", "地铁", "公交", "打车", "停车",
+            "天气", "下雨", "雨天", "今天", "明天", "现在",
+            "美食", "餐厅", "住宿", "酒店", "亲子", "老人",
+            "拍照", "夜景", "路线", "多久", "停留", "排队",
+            "卫生间", "行李", "寄存", "无障碍",
+        ]
+        points = [point for point in known_points if point in question]
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_\-]{1,}", question):
+            if token.lower() not in {"http", "https"}:
+                points.append(token)
+        return list(dict.fromkeys(points))
+
+    @staticmethod
+    def _rag_text_for_matching(rag_result: dict[str, Any]) -> str:
+        pieces = [str(rag_result.get("answer") or "")]
+        for source in rag_result.get("sources") or []:
+            pieces.extend(
+                [
+                    str(source.get("title") or ""),
+                    str(source.get("filename") or ""),
+                    str(source.get("content") or ""),
+                ]
+            )
+        return "\n".join(pieces)
+
     def _generate_itinerary_from_recommendation(
         self,
         session_id: str,
@@ -803,9 +978,16 @@ class CoordinatorAgent:
         store.agent_traces[session_id] = trace.model_dump()
 
         rag_result = self.rag_service.query(question=message, top_k=5)
+        search_result = None
+        if self._should_web_search(message, rag_result):
+            search_query = self._build_search_query(message, rag_result)
+            search_result = self.web_search_service.search(search_query, top_k=5)
         parts: list[str] = []
         async for chunk in self.chatbot_service.stream_travel_question(
-            message, rag_result
+            question=message,
+            rag_result=rag_result,
+            search_result=search_result,
+            place_context=self._travel_qa_place_context(session_id),
         ):
             parts.append(chunk)
             yield chunk

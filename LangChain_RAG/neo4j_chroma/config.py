@@ -35,9 +35,21 @@ def _resolve_project_path(path_text: str) -> str:
     """将相对路径固定解析到 LangChain_RAG 项目目录，避免受启动目录影响。"""
 
     path = Path(path_text)
-    if path.is_absolute():
-        return str(path)
-    return str(Path(__file__).resolve().parents[1] / path)
+    resolved = path if path.is_absolute() else Path(__file__).resolve().parents[1] / path
+    if _contains_non_ascii(str(resolved)):
+        return str(_ascii_chroma_cache_path(path.name or ".chroma"))
+    return str(resolved)
+
+
+def _contains_non_ascii(value: str) -> bool:
+    return any(ord(char) > 127 for char in value)
+
+
+def _ascii_chroma_cache_path(name: str) -> Path:
+    root = os.getenv("VOYAGEMIND_CHROMA_ROOT") or os.getenv("LOCALAPPDATA")
+    if root:
+        return Path(root) / "VoyageMind" / "LangChain_RAG" / name
+    return Path.cwd() / "voyagemind_chroma_cache" / name
 
 
 @dataclass(slots=True)
