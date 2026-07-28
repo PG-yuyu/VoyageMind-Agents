@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-import tempfile
+import hashlib
 from functools import lru_cache
 from pathlib import Path
 import sys
@@ -71,21 +71,21 @@ class RAGService:
         if not content:
             raise ValueError("上传文件为空")
 
-        with tempfile.TemporaryDirectory(prefix="voyagemind_rag_upload_") as tmp_dir:
-            tmp_path = Path(tmp_dir) / clean_filename
-            tmp_path.write_bytes(content)
+        stored_path = self._persist_uploaded_file(clean_filename, content)
+        ingest = getattr(self.service, "ingest_document")
+        try:
+            summary = ingest(
+                file_path=str(stored_path),
+                knowledge_base_id=knowledge_base_id,
+                skip_entity_extraction=skip_entity_extraction,
+            )
+        except TypeError:
+            summary = ingest(str(stored_path), knowledge_base_id)
 
-            ingest = getattr(self.service, "ingest_document")
-            try:
-                summary = ingest(
-                    file_path=str(tmp_path),
-                    knowledge_base_id=knowledge_base_id,
-                    skip_entity_extraction=skip_entity_extraction,
-                )
-            except TypeError:
-                summary = ingest(str(tmp_path), knowledge_base_id)
-
-        return self._document_payload(summary, size_bytes=len(content))
+        payload = self._document_payload(summary, size_bytes=len(content))
+        payload["stored_path"] = str(stored_path)
+        payload["stored_in_docs"] = True
+        return payload
 
     def list_documents(
         self, knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID
@@ -124,6 +124,18 @@ class RAGService:
         )
         response = self.service.answer(request)
         sources = [self._source_payload(source, index + 1) for index, source in enumerate(response.sources)]
+        if not sources:
+            evidence = self.retrieve_evidence(
+                question=question,
+                category=category,
+                place_name=place_name,
+                top_k=top_k,
+                knowledge_base_id=knowledge_base_id,
+                selected_document_ids=selected_document_ids,
+            )
+            sources = evidence["sources"]
+            if sources:
+                response.answer = evidence["answer"]
         return {
             "answer": response.answer,
             "sources": sources,
@@ -138,6 +150,63 @@ class RAGService:
             "intent": getattr(response.intent, "value", str(response.intent)),
             "rewritten_query": response.rewritten_query,
             "trace_id": response.trace_id,
+        }
+
+    def retrieve_evidence(
+        self,
+        question: str,
+        category: str | None = None,
+        place_name: str | None = None,
+        top_k: int = 5,
+        knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID,
+        selected_document_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        query_text = " ".join(
+            item for item in [question or "", category or "", place_name or ""] if item
+        ).strip()
+        graph_repository = getattr(self.service, "graph_repository", None)
+        if graph_repository is None:
+            return self._empty_evidence(question, category, place_name, top_k, knowledge_base_id)
+
+        try:
+            result = graph_repository.retrieve_context(
+                query=query_text or question or "",
+                entity_names=[],
+                knowledge_base_id=knowledge_base_id,
+                document_ids=selected_document_ids or [],
+                top_k=top_k,
+                max_hops=2,
+            )
+        except Exception:
+            return self._empty_evidence(question, category, place_name, top_k, knowledge_base_id)
+
+        sources: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for chunk in getattr(result, "chunks", []) or []:
+            payload = self._source_payload(chunk, len(sources) + 1)
+            content = " ".join(str(payload.get("content") or "").split())
+            key = (str(payload.get("filename") or ""), content[:180])
+            if not content or key in seen:
+                continue
+            seen.add(key)
+            payload["content"] = content[:1200]
+            sources.append(payload)
+
+        return {
+            "answer": self._evidence_answer(sources),
+            "sources": sources,
+            "sufficient": bool(sources),
+            "request": {
+                "question": question,
+                "category": category,
+                "place_name": place_name,
+                "top_k": top_k,
+                "knowledge_base_id": knowledge_base_id,
+                "selected_document_ids": selected_document_ids or [],
+            },
+            "intent": "document_search",
+            "rewritten_query": query_text or question or "",
+            "trace_id": "",
         }
 
     def recommendation_evidence(
@@ -163,12 +232,16 @@ class RAGService:
     def stats(self, knowledge_base_id: str = DEFAULT_KNOWLEDGE_BASE_ID) -> dict[str, Any]:
         health = self.health_check()
         documents = self.list_documents(knowledge_base_id)
+        graph_repository = getattr(self.service, "graph_repository", None)
+        vector_store = getattr(graph_repository, "vector_store", None)
+        chroma_client = getattr(vector_store, "chroma_client", None)
         return {
             **health,
             "knowledge_base_id": knowledge_base_id,
             "document_count": len(documents),
             "chunk_count": sum(int(document.get("chunks") or 0) for document in documents),
             "langchain_rag_root": str(LANGCHAIN_RAG_ROOT),
+            "chroma_persist_directory": getattr(chroma_client, "persist_directory", ""),
         }
 
     def _document_payload(self, document: Any, size_bytes: int | None = None) -> dict[str, Any]:
@@ -222,6 +295,41 @@ class RAGService:
         data["title"] = data.get("filename") or data.get("title") or "知识库来源"
         return data
 
+    def _empty_evidence(
+        self,
+        question: str,
+        category: str | None,
+        place_name: str | None,
+        top_k: int,
+        knowledge_base_id: str,
+    ) -> dict[str, Any]:
+        return {
+            "answer": "知识库暂未检索到可用证据。",
+            "sources": [],
+            "sufficient": False,
+            "request": {
+                "question": question,
+                "category": category,
+                "place_name": place_name,
+                "top_k": top_k,
+                "knowledge_base_id": knowledge_base_id,
+            },
+            "intent": "document_search",
+            "rewritten_query": question,
+            "trace_id": "",
+        }
+
+    @staticmethod
+    def _evidence_answer(sources: list[dict[str, Any]]) -> str:
+        if not sources:
+            return "知识库暂未检索到可用证据。"
+        lines = ["已从知识库检索到相关证据，回答应以这些片段为依据："]
+        for source in sources[:3]:
+            filename = source.get("filename") or source.get("title") or "资料库文档"
+            content = source.get("content") or ""
+            lines.append(f"{source.get('citation_index')}. {filename}：{content}")
+        return "\n".join(lines)
+
     def _format_size(self, size: int) -> str:
         if size < 1024 * 1024:
             return f"{max(1, round(size / 1024))} KB"
@@ -230,3 +338,42 @@ class RAGService:
     def _safe_filename(self, filename: str) -> str:
         name = Path(filename or "uploaded_document").name.strip()
         return name or "uploaded_document.txt"
+
+    def _persist_uploaded_file(self, clean_filename: str, content: bytes) -> Path:
+        uploads_dir = LANGCHAIN_RAG_ROOT / "docs" / "uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+
+        target = uploads_dir / clean_filename
+        target = self._non_overwriting_upload_path(target, content)
+        target.write_bytes(content)
+        return target
+
+    @staticmethod
+    def _non_overwriting_upload_path(target: Path, content: bytes) -> Path:
+        uploads_dir = target.parent.resolve()
+        candidate = target
+        if candidate.exists():
+            try:
+                if candidate.read_bytes() == content:
+                    return candidate
+            except OSError:
+                pass
+
+            digest = hashlib.sha256(content).hexdigest()[:12]
+            stem = target.stem or "uploaded_document"
+            suffix = target.suffix
+            candidate = target.with_name(f"{stem}_{digest}{suffix}")
+            counter = 2
+            while candidate.exists():
+                try:
+                    if candidate.read_bytes() == content:
+                        return candidate
+                except OSError:
+                    pass
+                candidate = target.with_name(f"{stem}_{digest}_{counter}{suffix}")
+                counter += 1
+
+        resolved_candidate = candidate.resolve()
+        if uploads_dir != resolved_candidate.parent:
+            raise ValueError("上传文件保存路径异常")
+        return candidate
