@@ -944,6 +944,8 @@ function generatedItemToUi(item, placeMap, hotelName) {
     || '根据当前需求自动安排，可继续输入偏好进行调整。'
   const route = buildItemRouteText(item)
   return {
+    place_id: item.place_id || place?.place_id || '',
+    item_type: item.item_type || '',
     time: item.start_time || '待定',
     title,
     tag: typeLabel,
