@@ -421,6 +421,7 @@ const preferenceSummary = computed(() => [
 onMounted(async () => {
   restorePersistedState()
   loadMapResources()
+  void loadKnowledgeDocuments()
   try {
     await healthCheck()
     if (!sessionId.value) {
@@ -433,7 +434,6 @@ onMounted(async () => {
       sessionId.value = `local_${Date.now()}`
     }
   }
-  await loadKnowledgeDocuments()
 })
 
 onBeforeUnmount(() => {
@@ -446,7 +446,7 @@ watch(
     itineraryDays, activeDay, tripHistory,
     currentUser, isAuthenticated, recommendationResult,
     recommendedRoutes, mapResources, budget,
-    currentItineraryId, baseVersion,
+    currentItineraryId, baseVersion, documents, uploadHint,
   ],
   persistState,
   { deep: true }
@@ -469,6 +469,8 @@ function persistState() {
     currentItineraryPayload: currentItineraryPayload.value,
     recommendedRoutes: recommendedRoutes.value,
     mapResources: mapResources.value,
+    documents: documents.value,
+    uploadHint: uploadHint.value,
     budget: budget.value,
     currentItineraryId: currentItineraryId.value,
     baseVersion: baseVersion.value,
@@ -511,6 +513,8 @@ function restorePersistedState() {
   mapResources.value = Array.isArray(payload.mapResources) && payload.mapResources.length
     ? payload.mapResources
     : mapResources.value
+  documents.value = Array.isArray(payload.documents) ? payload.documents : documents.value
+  uploadHint.value = payload.uploadHint || uploadHint.value
   budget.value = Array.isArray(payload.budget) && payload.budget.length ? payload.budget : budget.value
   currentItineraryId.value = payload.currentItineraryId || ''
   baseVersion.value = payload.baseVersion || 1
