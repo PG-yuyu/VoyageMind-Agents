@@ -296,7 +296,7 @@ function getUniqueDayPlaceIds(dayNumber) {
   const ids = []
   const seen = new Set()
   items.forEach((item) => {
-    const placeId = item?.place_id
+    const placeId = item?.place_id || findResourceForDayItem(item)?.place_id
     if (!placeId || seen.has(placeId)) return
     seen.add(placeId)
     ids.push(placeId)
@@ -304,8 +304,37 @@ function getUniqueDayPlaceIds(dayNumber) {
   return ids
 }
 
+function findResourceForDayItem(item) {
+  const names = [
+    item?.title,
+    item?.name,
+    item?.place_name,
+    item?.note
+  ].map(normalizePlaceName).filter(Boolean)
+  if (!names.length) return null
+  return props.resources.find((resource) => {
+    const resourceNames = [
+      resource?.name,
+      resource?.title,
+      resource?.address
+    ].map(normalizePlaceName).filter(Boolean)
+    return resourceNames.some((name) => (
+      names.includes(name) ||
+      names.some((itemName) => name.includes(itemName) || itemName.includes(name))
+    ))
+  }) || null
+}
+
+function normalizePlaceName(value) {
+  return String(value || '')
+    .replace(/[（(].*?[）)]/g, '')
+    .replace(/天津市|天津|和平区|河西区|河北区|南开区|河东区|红桥区|滨海新区/g, '')
+    .replace(/\s+/g, '')
+    .trim()
+}
+
 const visibleResources = computed(() => {
-  if (!activeDayPlaceIds.value.length) return props.resources
+  if (!activeDayPlaceIds.value.length) return dayTabs.value.length ? [] : props.resources
   const idSet = new Set(activeDayPlaceIds.value)
   const unique = new Map()
   props.resources.forEach((resource) => {
@@ -317,7 +346,7 @@ const visibleResources = computed(() => {
 })
 
 const visibleRoutes = computed(() => {
-  if (!activeDayPlaceIds.value.length) return props.routes
+  if (!activeDayPlaceIds.value.length) return dayTabs.value.length ? [] : props.routes
   const idSet = new Set(activeDayPlaceIds.value)
   const dayRoutes = props.routes.filter((route) => (
     idSet.has(route?.origin_place_id) &&
