@@ -324,11 +324,25 @@ const visibleRoutes = computed(() => {
     idSet.has(route?.destination_place_id) &&
     route.origin_place_id !== route.destination_place_id
   ))
-  const orderedRoutes = dayRoutes.filter((route) => (
-    activeDayRoutePairs.value.has(`${route.origin_place_id}->${route.destination_place_id}`)
-  ))
-  return orderedRoutes.length ? orderedRoutes : dayRoutes
+  const uniqueRoutes = new Map()
+  dayRoutes.forEach((route) => {
+    const key = normalizedRouteKey(route)
+    if (!key || uniqueRoutes.has(key)) return
+    uniqueRoutes.set(key, route)
+  })
+  return Array.from(uniqueRoutes.values()).sort((left, right) => {
+    const leftIsSequential = activeDayRoutePairs.value.has(`${left.origin_place_id}->${left.destination_place_id}`)
+    const rightIsSequential = activeDayRoutePairs.value.has(`${right.origin_place_id}->${right.destination_place_id}`)
+    return Number(rightIsSequential) - Number(leftIsSequential)
+  })
 })
+
+function normalizedRouteKey(route) {
+  const origin = route?.origin_place_id
+  const destination = route?.destination_place_id
+  if (!origin || !destination || origin === destination) return ''
+  return [origin, destination].sort().join('__')
+}
 
 function createSmoothTextStream(message, field = 'content') {
   let queue = ''
