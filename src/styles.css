@@ -697,10 +697,11 @@ textarea {
 
 .voice-bubble__icon {
   position: relative;
-  display: inline-grid;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 24px;
   height: 24px;
-  place-items: center;
   border-radius: 999px;
   background: linear-gradient(135deg, #4f65ff, #28b7b0);
   box-shadow: 0 8px 16px rgba(79, 101, 255, 0.18);
@@ -717,12 +718,12 @@ textarea {
 }
 
 .voice-bubble.playing .voice-bubble__icon {
-  grid-template-columns: repeat(2, 3px);
   gap: 3px;
 }
 
 .voice-bubble.playing .voice-bubble__icon::before,
 .voice-bubble.playing .voice-bubble__icon::after {
+  display: block;
   width: 3px;
   height: 10px;
   margin: 0;
@@ -790,6 +791,14 @@ textarea {
 
 .voice-bubble audio {
   display: none;
+}
+
+.chat-row .message-content:has(.voice-bubble) {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  line-height: 1;
 }
 
 @keyframes voice-wave {

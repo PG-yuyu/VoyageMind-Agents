@@ -638,11 +638,12 @@ function applyPlanningProgressEvent(event) {
 function updatePlanningProgressFromResult(response, mode = 'api') {
   const backendItinerary = response?.itinerary || response?.data?.itinerary
   const demoItineraryDone = mode === 'demo' && hasPlan.value && itineraryDays.value.length > 0
+  const visibleItineraryDone = Boolean(backendItinerary?.days?.length || (hasPlan.value && itineraryDays.value.length > 0))
   const currentProgress = planningProgress.value
-  const requirementsDone = Boolean(response?.requirements || demoItineraryDone || currentProgress[0]?.status === 'done')
-  const recommendationDone = Boolean(response?.recommendation_result || recommendationResult.value || demoItineraryDone || currentProgress[1]?.status === 'done')
-  const itineraryDone = Boolean(backendItinerary?.days?.length || demoItineraryDone || currentProgress[2]?.status === 'done')
-  const evaluationDone = Boolean(response?.evaluation || demoItineraryDone || currentProgress[3]?.status === 'done')
+  const requirementsDone = Boolean(response?.requirements || visibleItineraryDone || demoItineraryDone || currentProgress[0]?.status === 'done')
+  const recommendationDone = Boolean(response?.recommendation_result || recommendationResult.value || visibleItineraryDone || demoItineraryDone || currentProgress[1]?.status === 'done')
+  const itineraryDone = Boolean(visibleItineraryDone || demoItineraryDone || currentProgress[2]?.status === 'done')
+  const evaluationDone = Boolean(response?.evaluation || visibleItineraryDone || demoItineraryDone || currentProgress[3]?.status === 'done')
 
   planningProgress.value = [
     {
@@ -662,7 +663,7 @@ function updatePlanningProgressFromResult(response, mode = 'api') {
     {
       title: progressStepTemplates[2].title,
       desc: itineraryDone
-        ? (demoItineraryDone ? '已生成前端演示行程，后续可替换为真实规划接口' : routeProgressText())
+        ? (demoItineraryDone && !backendItinerary?.days?.length ? '已生成前端演示行程，后续可替换为真实规划接口' : routeProgressText())
         : '等待成员三生成完整每日行程',
       status: itineraryDone ? 'done' : 'pending'
     },
