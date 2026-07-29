@@ -434,6 +434,7 @@ const preferenceSummary = computed(() => [
 
 onMounted(async () => {
   restorePersistedState()
+  syncBudgetFromItineraryDays()
   loadMapResources()
   void loadKnowledgeDocuments()
   try {
@@ -463,6 +464,17 @@ watch(
     currentItineraryId, baseVersion, documents, uploadHint,
   ],
   persistState,
+  { deep: true }
+)
+
+watch(
+  messages,
+  () => {
+    const filtered = messages.value.filter((message) => !isWorkflowChatMessage(message))
+    if (filtered.length !== messages.value.length) {
+      messages.value = filtered
+    }
+  },
   { deep: true }
 )
 
@@ -510,7 +522,9 @@ function restorePersistedState() {
   activePage.value = payload.activePage || 'plan'
   sessionId.value = payload.sessionId || ''
   hasPlan.value = Boolean(payload.hasPlan)
-  messages.value = Array.isArray(payload.messages) ? payload.messages : []
+  messages.value = Array.isArray(payload.messages)
+    ? payload.messages.filter((message) => !isWorkflowChatMessage(message))
+    : []
   requirements.value = payload.requirements && typeof payload.requirements === 'object'
     ? { ...requirements.value, ...payload.requirements }
     : requirements.value
@@ -532,6 +546,20 @@ function restorePersistedState() {
   budget.value = Array.isArray(payload.budget) && payload.budget.length ? payload.budget : budget.value
   currentItineraryId.value = payload.currentItineraryId || ''
   baseVersion.value = payload.baseVersion || 1
+}
+
+function isWorkflowChatMessage(message) {
+  if (!message || message.role !== 'assistant') return false
+  const text = String(message.text || message.content || '')
+  return (
+    text.includes('已生成天津')
+    || text.includes('自由行方案')
+    || text.includes('已根据你的要求调整行程')
+    || text.includes('已根据你的要求更新行程')
+    || text.includes('已调整第')
+    || text.includes('调整类型')
+    || text.includes('本地模拟调整')
+  )
 }
 
 async function loadMapResources() {
@@ -663,7 +691,6 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
         applyPlanningProgressEvent
       )
       planningResponse = response
-      messages.value.push({ role: 'assistant', text: response.reply })
       requirements.value = response.requirements || requirements.value
       applyRecommendationPayload(response)
 
@@ -692,9 +719,9 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
     console.error('🔍 DEBUG submitPromptText 异常:', error.message || error, error.stack)
     console.error('🔍 DEBUG 当前状态 — targetPage:', targetPage, 'hasPlan:', hasPlan.value, 'planningResponse:', planningResponse ? '有值' : 'null')
     apiError.value = error.message
-    messages.value.push({
+    if (targetPage === 'qa') messages.value.push({
       role: 'assistant',
-      text: '我先按演示数据生成一份天津两日游方案。后端连接后，会自动替换为真实规划结果。'
+      text: '问答暂时没有返回结果，请稍后再试。'
     })
     if (targetPage !== 'qa') {
       syncItineraryDays(text)
@@ -1120,7 +1147,60 @@ function estimateRouteTime(items) {
 function formatDistance(value) {
   const meters = Number(value)
   if (!Number.isFinite(meters) || meters <= 0) return '待校验'
+  if (meters < 1000) return `${Math.round(meters)} 米`
   return `${(meters / 1000).toFixed(1)} 公里`
+}
+
+function parseDistanceMeters(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.max(0, value) : 0
+  const text = String(value || '')
+  let total = 0
+  const matches = text.matchAll(/([\d.]+)\s*(公里|千米|km|KM|米|m)/g)
+  for (const match of matches) {
+    const amount = Number(match[1])
+    if (!Number.isFinite(amount)) continue
+    const unit = match[2].toLowerCase()
+    total += unit === '米' || unit === 'm' ? amount : amount * 1000
+  }
+  return Math.round(total)
+}
+
+function parseRouteMinutes(value) {
+  const text = String(value || '')
+  let total = 0
+  const matches = text.matchAll(/([\d.]+)\s*分钟/g)
+  for (const match of matches) {
+    const amount = Number(match[1])
+    if (Number.isFinite(amount)) total += amount
+  }
+  return total
+}
+
+function isWalkingRouteText(value) {
+  const text = String(value || '')
+  return /步行|徒步|散步|漫步|游览|逛/.test(text)
+}
+
+function deriveDayWalkingDistanceMeters(day) {
+  const explicit = Number(day?.walking_distance_m)
+  if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit)
+
+  const itemTotal = (day?.items || []).reduce((sum, item) => {
+    const itemExplicit = Number(item?.walking_distance_m)
+    if (Number.isFinite(itemExplicit) && itemExplicit > 0) return sum + itemExplicit
+
+    const routeText = String(item?.route || '')
+    if (!isWalkingRouteText(routeText)) return sum
+
+    const distance = parseDistanceMeters(routeText)
+    if (distance > 0) return sum + distance
+
+    const minutes = parseRouteMinutes(routeText)
+    return sum + Math.round(minutes * 80)
+  }, 0)
+  if (itemTotal > 0) return Math.round(itemTotal)
+
+  return parseDistanceMeters(day?.walking)
 }
 
 function syncBudgetFromGeneratedItinerary(itinerary) {
@@ -1165,52 +1245,19 @@ function syncBudgetFromItineraryDays(days = itineraryDays.value) {
   const stats = { hotel: 0, ticket: 0, food: 0, transport: 0, attraction: 0 }
 
   ;(days || []).forEach((day) => {
+    let dayCost = 0
     ;(day.items || []).forEach((item) => {
       const category = budgetCategoryForItem(item)
       if (stats[category] !== undefined) stats[category] += 1
       if (category === 'ticket') stats.attraction += 1
       const cost = Number(item?.cost ?? item?.total_cost) || 0
+      dayCost += cost
       if (cost <= 0) return
       totals[category] += cost
     })
+    day.cost = Math.round(dayCost)
+    day.walking = formatDistance(deriveDayWalkingDistanceMeters(day))
   })
-
-  const dayCount = Math.max(1, (days || []).length || requirements.value.days || 1)
-  const people = Math.max(1, Number(requirements.value.people) || 1)
-  const requestedBudget = Number(requirements.value.total_budget) || 0
-
-  if (totals.hotel <= 0 && dayCount > 1) {
-    totals.hotel = Math.round((dayCount - 1) * people * 260)
-  }
-  if (totals.food <= 0 || totals.food < dayCount * people * 90) {
-    totals.food = Math.max(totals.food, Math.round(dayCount * people * 120))
-  }
-  if (totals.transport <= 0 || totals.transport < dayCount * people * 45) {
-    totals.transport = Math.max(totals.transport, Math.round(dayCount * people * 70))
-  }
-  if (totals.ticket <= 0 && stats.attraction > 0) {
-    totals.ticket = Math.round(Math.min(stats.attraction, dayCount * 4) * people * 45)
-  }
-
-  if (requestedBudget > 0) {
-    const currentTotal = totals.hotel + totals.ticket + totals.food + totals.transport + totals.other
-    const targetMin = Math.round(requestedBudget * 0.76)
-    const targetMax = Math.round(requestedBudget * 0.9)
-    if (currentTotal < targetMin) {
-      const gap = targetMin - currentTotal
-      totals.hotel += Math.round(gap * 0.38)
-      totals.food += Math.round(gap * 0.28)
-      totals.transport += Math.round(gap * 0.18)
-      totals.ticket += gap - Math.round(gap * 0.38) - Math.round(gap * 0.28) - Math.round(gap * 0.18)
-    } else if (currentTotal > requestedBudget) {
-      const ratio = targetMax / currentTotal
-      totals.hotel *= ratio
-      totals.ticket *= ratio
-      totals.food *= ratio
-      totals.transport *= ratio
-      totals.other *= ratio
-    }
-  }
 
   budget.value = [
     { label: '酒店', value: Math.round(totals.hotel), color: '#5b6cff' },
@@ -1617,8 +1664,8 @@ function calcEndTime(start, durationMin) {
 }
 
 function parseWalkingDistance(str) {
-  const m = str.match(/([\d.]+)/)
-  return m ? Math.round(parseFloat(m[1]) * 1000) : 5000
+  const meters = parseDistanceMeters(str)
+  return meters > 0 ? meters : 0
 }
 
 function extractModifyAction(text) {
@@ -2518,9 +2565,9 @@ async function submitAuth() {
               <p>{{ hasPlan ? (requirements.interests?.join(' · ') || '已生成行程') : '五大道 · 意风区 · 海河' }}</p>
             </div>
             <div class="hero-route-card">
-              <span>{{ hasPlan ? '当前路线' : '生成后展示' }}</span>
-              <strong>{{ hasPlan ? activeItinerary.walking : '路线 / 预算' }}</strong>
-              <p>{{ hasPlan ? '步行 + 地铁 · 强度适中' : '会在规划后自动汇总' }}</p>
+              <span>{{ hasPlan ? '步行距离' : '生成后展示' }}</span>
+              <strong>{{ hasPlan ? activeItinerary.walking : '步行 / 预算' }}</strong>
+              <p>{{ hasPlan ? '仅统计步行路段' : '会在规划后自动汇总' }}</p>
             </div>
           </div>
         </div>

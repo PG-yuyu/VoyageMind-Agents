@@ -283,7 +283,7 @@ class PlanningAgent:
             interests=req.get("interests", []),
             daily_start=req.get("daily_start_time", "09:00"),
             daily_end=req.get("daily_end_time", "18:00"),
-            walking_limit_m=req.get("walking_limit_m", 99999),
+            walking_limit_m=req.get("walking_limit_m") or 8000,
             pace_strategy=policy.get("pace_strategy", "normal"),
             attractions=attrs_str,
             hotels=hotels_str,
