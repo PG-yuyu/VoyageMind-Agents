@@ -473,7 +473,7 @@ class CoordinatorAgent:
         # ── 诊断日志：检查 itinerary 状态 ──────────────────────────
         _logger = logging.getLogger(__name__)
         if itinerary is None:
-            _logger.warning("🔍 DEBUG: itinerary is None — 前端将回退到演示数据")
+            _logger.warning("🔍 DEBUG: itinerary is None — 本次响应不包含真实行程，请继续查看行程生成失败原因")
         elif not isinstance(itinerary, dict):
             _logger.error("🔍 DEBUG: itinerary 不是 dict, type=%s", type(itinerary).__name__)
         else:

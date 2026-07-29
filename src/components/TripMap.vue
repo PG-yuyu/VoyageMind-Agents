@@ -1112,8 +1112,6 @@ async function initializeRealMap() {
       viewMode: '2D',
       zoom: first ? 13 : 11
     })
-    amapInstance.value.addControl(new amapApi.Scale())
-    amapInstance.value.addControl(new amapApi.ToolBar({ position: 'RB' }))
     amapInfoWindow.value = new amapApi.InfoWindow({
       offset: new amapApi.Pixel(0, -36)
     })
@@ -1548,6 +1546,21 @@ function clamp(value, min, max) {
   max-height: 100%;
 }
 
+:deep(.amap-logo),
+:deep(.amap-copyright),
+:deep(.amap-copyright-left),
+:deep(.amap-copyright-right),
+:deep(.amap-mcode),
+:deep(.amap-toast),
+:deep(.amap-notice),
+:deep(.amap-info-sharp),
+:deep(.amap-overlays .amap-lib-marker-from),
+:deep(.amap-overlays .amap-lib-marker-to) {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 .trip-map__side {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -1913,7 +1926,9 @@ function clamp(value, min, max) {
 
 .guide-tts__icon {
   position: relative;
-  display: inline-grid;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   flex: 0 0 auto;
@@ -1934,6 +1949,7 @@ function clamp(value, min, max) {
 
 .guide-tts__player.playing .guide-tts__icon::before,
 .guide-tts__player.playing .guide-tts__icon::after {
+  display: block;
   width: 3px;
   height: 8px;
   margin: 0;
@@ -1943,7 +1959,6 @@ function clamp(value, min, max) {
 }
 
 .guide-tts__player.playing .guide-tts__icon {
-  grid-template-columns: repeat(2, 3px);
   gap: 2px;
 }
 
