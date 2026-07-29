@@ -1,7 +1,7 @@
 <template>
   <article
     class="place-card"
-    :class="[{ active, invalid: coordinateWarning }, place.place_type]"
+    :class="[{ active }, place.place_type]"
     @click="$emit('select', place)"
   >
     <header>
@@ -18,14 +18,12 @@
 
     <footer>
       <p>{{ place.address || '地址待补充' }}</p>
-      <b v-if="coordinateWarning">{{ warningText }}</b>
     </footer>
   </article>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import { hasRenderableCoordinate, needsCoordinateWarning } from '../stores/mapStore'
 
 const props = defineProps({
   place: {
@@ -47,13 +45,6 @@ const typeLabels = {
 }
 
 const typeLabel = computed(() => typeLabels[props.place.place_type] || '地点')
-const canRenderMarker = computed(() => hasRenderableCoordinate(props.place))
-const coordinateWarning = computed(() => needsCoordinateWarning(props.place))
-const warningText = computed(() => {
-  if (!canRenderMarker.value) return '坐标缺失，暂不渲染 Marker'
-  if (props.place.verified === false) return props.place.warning || '坐标未验证，已用待确认 Marker 展示'
-  return '坐标缺失，暂不渲染 Marker'
-})
 </script>
 
 <style scoped>

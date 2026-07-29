@@ -5,7 +5,6 @@
         <span>推荐资源</span>
         <strong>{{ resources.length }} 个地点</strong>
       </div>
-      <small v-if="invalidCount">{{ invalidCount }} 个坐标需确认</small>
     </header>
 
     <nav class="place-list__tabs">
@@ -35,7 +34,6 @@
 <script setup>
 import { computed, ref } from 'vue'
 import PlaceCard from './PlaceCard.vue'
-import { needsCoordinateWarning } from '../stores/mapStore'
 
 const props = defineProps({
   resources: {
@@ -52,20 +50,15 @@ defineEmits(['select'])
 
 const activeTab = ref('all')
 
-const invalidCount = computed(() => props.resources.filter(needsCoordinateWarning).length)
 const tabs = computed(() => [
   { id: 'all', label: '全部', count: props.resources.length },
   { id: 'attraction', label: '景点', count: countByType('attraction') },
   { id: 'hotel', label: '酒店', count: countByType('hotel') },
-  { id: 'restaurant', label: '餐厅', count: countByType('restaurant') },
-  { id: 'invalid', label: '异常', count: invalidCount.value }
+  { id: 'restaurant', label: '餐厅', count: countByType('restaurant') }
 ])
 
 const filteredResources = computed(() => {
   if (activeTab.value === 'all') return props.resources
-  if (activeTab.value === 'invalid') {
-    return props.resources.filter(needsCoordinateWarning)
-  }
   return props.resources.filter((resource) => resource.place_type === activeTab.value)
 })
 

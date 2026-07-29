@@ -884,16 +884,14 @@ function applyRecommendationPayload(response) {
       response.map_resources.resources,
       recommendationResult.value
     )
-    mapError.value = response.map_resources.warnings?.length
-      ? response.map_resources.warnings.join('；')
-      : ''
+    mapError.value = ''
     return
   }
 
   const resources = resourcesFromRecommendationResult(recommendationResult.value)
   if (resources.length) {
     mapResources.value = resources
-    mapError.value = '地图资源接口暂未返回，当前使用推荐结果中的坐标展示。'
+    mapError.value = ''
   }
 }
 
