@@ -550,6 +550,7 @@ function playGuideAudioElement(audio, url, { restart = false } = {}) {
     guidePlayingVoiceUrl.value = ''
     return
   }
+  // 同一时间只允许播放一段导游语音，避免多个 audio 标签叠音。
   document.querySelectorAll('audio[data-guide-voice-player="true"]').forEach((item) => {
     if (item !== audio) item.pause()
   })
@@ -673,11 +674,13 @@ function normalizeGuideAudioUrl(url) {
 
 async function handleGuideTtsClick(message) {
   if (message.ttsUrl) {
+    // 已经生成过音频时直接播放缓存 URL，不重复请求 TTS。
     const audio = findGuideTtsAudio(message)
     if (audio) playGuideAudioElement(audio, message.ttsUrl)
     return
   }
 
+  // 首次点击时先生成音频，再等 DOM 挂载 audio 标签后自动播放。
   await generateGuideTts(message)
   await nextTick()
   if (message.ttsUrl) {
@@ -693,6 +696,7 @@ async function generateGuideTts(message) {
   message.ttsLoading = true
   message.ttsError = ''
   try {
+    // TTS 请求会携带当前地点或路线标题，让后端能把回答改写成更自然的导游讲解。
     const data = await synthesizeGuideVoice({
       sessionId: props.sessionId || 'demo_session',
       text,

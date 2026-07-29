@@ -1,0 +1,5 @@
+{
+  "extraPaths": [
+    "backend/vendor/langchain_chat/src"
+  ]
+}

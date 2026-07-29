@@ -313,6 +313,7 @@ class CoordinatorAgent:
         store.ensure_session(session_id)
         user_message = store.add_message(session_id, "user", message)
 
+        # 规划页使用进度流：先把当前执行阶段推给前端，再在 final 事件里带回完整结果。
         yield progress(0, "active", "正在识别意图并抽取旅行需求")
         intent = self.intent_agent.run(message)
         extraction = self.requirement_adapter.extract(
@@ -330,6 +331,7 @@ class CoordinatorAgent:
         store.agent_traces[session_id] = trace.model_dump()
 
         if intent.intent == "travel_qa":
+            # 问答分支不生成行程，只查询资料库并交给 Chatbot 组织自然语言回答。
             yield progress(0, "done", "已识别为旅行问答，转入知识问答流程")
             rag_result = self.rag_service.query(question=message, top_k=5)
             reply = self.chatbot_service.answer_travel_question(message, rag_result)
@@ -347,6 +349,7 @@ class CoordinatorAgent:
             return
 
         if extraction.need_follow_up:
+            # 需求缺字段时提前返回追问，避免把不完整 TravelRequest 传给推荐和规划模块。
             yield progress(0, "done", "已识别需求，但仍缺少关键信息")
             reply = extraction.follow_up_question or "还需要补充关键信息。"
             store.add_message(session_id, "assistant", reply)
@@ -363,6 +366,7 @@ class CoordinatorAgent:
             return
 
         if intent.intent == "modify_trip":
+            # 主聊天入口只负责识别修改意图；真正的局部重排在“我的行程”页基于当前版本执行。
             yield progress(0, "done", "已识别为行程修改需求")
             yield progress(2, "active", "正在进入行程修改流程")
             reply = "请在「我的行程」页使用智能修改入口调整当前行程。"
@@ -411,6 +415,7 @@ class CoordinatorAgent:
             yield progress(1, "done", "推荐模块已返回地点候选和路线资源")
             yield progress(2, "active", "正在根据推荐结果生成每日行程")
             try:
+                # 推荐结果包含景点、餐厅、住宿和路线事实，行程模块在此基础上排每天时间线。
                 itinerary = self._generate_itinerary(
                     requirements=extraction.requirements,
                     recommendation_output=recommendation_output,

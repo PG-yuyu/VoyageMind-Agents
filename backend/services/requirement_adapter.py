@@ -66,7 +66,10 @@ class RequirementAdapter:
         if not payload:
             return request
 
-        data = payload.get("requirements") if isinstance(payload.get("requirements"), dict) else payload
+        nested_requirements = payload.get("requirements")
+        data = nested_requirements if isinstance(nested_requirements, dict) else payload
+        if not isinstance(data, dict):
+            return request
         merged = request.model_copy(deep=True)
         scalar_fields = {
             "city": str,

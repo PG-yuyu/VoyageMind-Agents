@@ -51,6 +51,7 @@ export function sendMessage(sessionId, message) {
 }
 
 export async function streamPlanMessage(sessionId, message, onEvent) {
+  // 规划接口返回 NDJSON：中间行是 progress，最后一行是 final，适合驱动前端步骤条。
   const response = await fetch(`${API_BASE}/chat/messages/progress`, {
     method: 'POST',
     headers: {
@@ -71,6 +72,7 @@ export async function streamPlanMessage(sessionId, message, onEvent) {
     const text = line.trim()
     if (!text) return
     const event = JSON.parse(text)
+    // 每收到一条事件就交给页面更新状态，final 数据另外缓存后统一返回。
     onEvent?.(event)
     if (event.type === 'final') {
       finalData = event.data
@@ -96,6 +98,7 @@ export async function streamPlanMessage(sessionId, message, onEvent) {
 }
 
 export async function streamMessage(sessionId, message, onChunk) {
+  // 问答只需要连续文本流，不包含规划进度，所以处理方式比规划流更轻。
   const response = await fetch(`${API_BASE}/chat/messages/stream`, {
     method: 'POST',
     headers: {
@@ -121,6 +124,7 @@ export async function streamMessage(sessionId, message, onChunk) {
 }
 
 export async function streamGuideChat(payload, onChunk) {
+  // AI 导游复用流式文本体验，但请求体会额外带上地图上的地点或路线上下文。
   const response = await fetch(`${API_BASE}/guide/chat/stream`, {
     method: 'POST',
     headers: {
@@ -146,6 +150,7 @@ export async function streamGuideChat(payload, onChunk) {
 }
 
 export async function understandVoice({ sessionId, scene, audioBlob, clientHint = '' }) {
+  // 语音识别走 multipart，保留原始录音文件，后端负责转码、ASR 和文本纠错。
   const formData = new FormData()
   formData.append('session_id', sessionId || 'demo_session')
   formData.append('scene', scene || 'plan')
@@ -171,6 +176,7 @@ export async function synthesizeGuideVoice({
   model = '',
   voice = ''
 }) {
+  // 导游讲解 TTS 单独封装，前端拿到音频 URL 后交给 audio 标签播放和进度同步。
   const body = {
     session_id: sessionId || 'demo_session',
     text

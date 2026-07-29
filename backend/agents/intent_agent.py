@@ -21,6 +21,7 @@ class IntentAgent:
         fallback = self.intent_service.detect(message)
         if self._is_smalltalk(message):
             return fallback
+        # 先让模型处理自然语言里的隐含意图；规则结果作为稳定兜底，避免模型异常影响主流程分发。
         result = self.chatbot_service.chat_json(
             system_prompt=(
                 "你是天津自由行智能规划系统的意图识别 Agent，本项目只处理天津旅游。"
@@ -63,6 +64,7 @@ class IntentAgent:
         sub_intent = result.get("sub_intent")
         if intent not in valid_intents or sub_intent not in valid_sub_intents:
             return fallback
+        # 低置信度时优先保留规则判断，减少把问答误分到规划或修改流程的情况。
         if confidence < 0.6 and fallback.confidence >= confidence:
             return fallback
         return IntentResult(

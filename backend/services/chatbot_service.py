@@ -36,6 +36,7 @@ class ChatbotService:
             if str(chat_src) not in sys.path:
                 sys.path.insert(0, str(chat_src))
             cwd = Path.cwd()
+            # 内置 ChatEngine 依赖自己的配置相对路径，临时切换工作目录后再恢复。
             os.chdir(chat_root)
             from core.chat_engine import ChatEngine
             from core.config_manager import get_config
@@ -107,6 +108,7 @@ class ChatbotService:
     def summarize_agent_reply(self, message: str, context: dict) -> str:
         branch = context.get("branch")
         if branch in {"create_trip", "modify_trip"}:
+            # 规划和修改结果以结构化数据为准，回复文案只做简短总结，不额外编造路线或预算。
             return self._fallback_reply(context)
 
         if not self.available or self.engine is None:
@@ -139,6 +141,7 @@ class ChatbotService:
         )
         context = json.dumps(rag_result or {}, ensure_ascii=False)
         try:
+            # 问答可以结合 RAG 证据，也允许在资料不足时给出通用旅行建议。
             return self.chat(system, f"用户问题：{question}\n资料库检索结果：{context}")
         except Exception as exc:
             self.error = str(exc)

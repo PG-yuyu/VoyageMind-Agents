@@ -194,6 +194,7 @@ def _transcribe_audio_sync(audio_bytes: bytes, filename: str) -> tuple[str, str]
     load_dotenv(override=False, encoding="utf-8-sig")
     provider = os.environ.get("ASR_PROVIDER", "baidu").strip().lower()
 
+    # ASR 服务通过环境变量切换，接口层保持不变，前端始终只调用 /voice/understand。
     if provider in {"baidu", "baidu-cloud"}:
         return _transcribe_with_baidu(audio_bytes, filename)
 
@@ -215,6 +216,7 @@ def _transcribe_with_baidu(audio_bytes: bytes, filename: str) -> tuple[str, str]
     if not api_key or not secret_key:
         return "", "BAIDU_ASR_API_KEY and BAIDU_ASR_SECRET_KEY are not configured"
 
+    # 浏览器录音通常是 webm/opus，百度短语音接口更稳定的输入是 16k 单声道 wav。
     wav_bytes, convert_error = _convert_audio_to_wav_16k(audio_bytes, filename)
     if convert_error:
         return "", convert_error
@@ -298,6 +300,7 @@ def _convert_audio_to_wav_16k(audio_bytes: bytes, filename: str) -> tuple[bytes,
             "wav",
             output_path,
         ]
+        # ffmpeg 放在子进程中执行，避免把浏览器音频格式兼容问题扩散到 ASR 调用处。
         completed = subprocess.run(
             command,
             stdout=subprocess.PIPE,
@@ -403,6 +406,7 @@ def _understand_with_chatbot(raw_hint: str, scene: str) -> str:
     fallback = _normalize_locally(raw_hint, scene)
     try:
         chatbot = ChatbotService()
+        # ASR 结果可能把数字、预算或景点名识别错；这里统一修正成下游 Agent 可直接处理的中文请求。
         system_prompt = (
             "You are the voice-understanding corrector for a Tianjin travel app. "
             "The browser produced a possibly noisy Chinese speech recognition hint. "

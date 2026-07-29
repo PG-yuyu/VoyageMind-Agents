@@ -680,6 +680,7 @@ function updatePlanningProgressFromResult(response, mode = 'api') {
 async function submitPromptText(text, targetPage = 'trip', displayText = text, audioUrl = '', audioType = '') {
   if (!text || planning.value) return
 
+  // 只有旅行问答进入聊天记录；规划和调整属于工作流状态，避免混入问答上下文。
   if (targetPage === 'qa') {
     messages.value.push({ role: 'user', text: displayText, audioUrl, audioType })
   }
@@ -689,6 +690,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
 
   try {
     if (targetPage === 'qa') {
+      // 问答页直接展示流式文本，使用平滑输出让模型回复更接近实时对话。
       const assistantMessage = reactive({ role: 'assistant', text: '', isStreaming: true })
       const streamDisplay = createSmoothTextStream(assistantMessage)
       messages.value.push(assistantMessage)
@@ -697,6 +699,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
       })
       await streamDisplay.finish()
     } else {
+      // 规划页需要步骤进度和最终结构化行程，因此走 progress + final 的事件流。
       const response = await streamPlanMessage(
         sessionId.value || `local_${Date.now()}`,
         text,
@@ -706,7 +709,7 @@ async function submitPromptText(text, targetPage = 'trip', displayText = text, a
       requirements.value = response.requirements || requirements.value
       applyRecommendationPayload(response)
 
-      // ── 优先使用后端返回的真实行程，不可用时用模板兜底 ──
+      // 真实行程是后续预算、地图和智能修改的基础，没有 itinerary 时不把推荐结果伪装成行程。
       const backendItinerary = response.itinerary || response.data?.itinerary
       console.log('🔍 DEBUG response.itinerary:', backendItinerary ? `days=${backendItinerary.days?.length}, items=${backendItinerary.days?.[0]?.items?.length}` : 'null/undefined')
       console.log('🔍 DEBUG response 顶层 keys:', Object.keys(response).join(', '))
@@ -769,11 +772,13 @@ async function startVoiceInput(scene = 'plan') {
   }
 
   try {
+    // 浏览器端只负责采集原始音频；识别、纠错和场景分发都交给后端统一处理。
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     voiceChunks = []
     const mimeType = supportedVoiceMimeType()
     voiceRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
     voiceRecorder.ondataavailable = (event) => {
+      // MediaRecorder 会分片返回 Blob，停止录音后再合并成一次上传的音频文件。
       if (event.data && event.data.size > 0) {
         voiceChunks.push(event.data)
       }
@@ -808,6 +813,7 @@ async function submitVoiceBlob(audioBlob, scene) {
   const audioUrl = URL.createObjectURL(audioBlob)
   voiceObjectUrls.push(audioUrl)
   try {
+    // scene 用来区分规划、问答和导游语音，识别后的文本仍回到同一个 submitPromptText 入口。
     const data = await understandVoice({
       sessionId: sessionId.value || 'demo_session',
       scene,
