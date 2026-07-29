@@ -49,6 +49,9 @@ def _compact_preview_itinerary(itinerary: dict[str, Any], target_day: int | None
         items = []
         for item in day.get("items") or []:
             items.append({
+                "item_id": item.get("item_id") or "",
+                "place_id": item.get("place_id") or "",
+                "item_type": item.get("item_type") or "",
                 "time": item.get("time") or item.get("start_time") or "",
                 "title": item.get("title") or item.get("place_name") or item.get("note") or "",
                 "tag": item.get("tag") or item.get("item_type") or "",

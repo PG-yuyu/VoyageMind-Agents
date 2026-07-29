@@ -115,6 +115,7 @@ class AdjustmentAgent:
         target_item_id = req.get("target_item_id")
         new_constraints = req.get("new_constraints", {})
         original_text = req.get("original_text", "")
+        action = _normalize_adjust_action(action, original_text)
         current_itinerary_dict = req.get("current_itinerary")
 
         trace: list[dict] = []
@@ -294,7 +295,7 @@ class AdjustmentAgent:
 
         # reduce_walking / change_budget 走确定性 demo（LLM 对多天处理不可靠）
         # change_to_indoor 让 LLM 决策，demo 仅做降级兜底
-        skip_llm = action in ("reduce_walking", "change_budget")
+        skip_llm = action in ("reduce_walking",)
 
         if not skip_llm:
             try:
@@ -374,14 +375,19 @@ class AdjustmentAgent:
 
             # 全局动作（reduce_walking / change_budget）：不需要目标项，直接合并
             is_global_action = action in ("reduce_walking", "change_budget", "change_to_indoor")
+            is_day_level_action = is_global_action or (
+                not target_item_id
+                and action in ("replace_attraction", "replace_restaurant")
+                and target_day is not None
+            )
 
-            if not target_item_id and not is_global_action:
+            if not target_item_id and not is_day_level_action:
                 # 无法确定目标项时，拒绝修改（安全优先）
                 logger.warning("未找到目标项，拒绝修改")
                 trace.append({"step": 35, "action": "no_target", "summary": "未找到目标项", "status": "error"})
                 continue  # 跳过此天，不合并
 
-            if is_global_action:
+            if is_day_level_action:
                 # 全局动作：接受 replan_days 的所有项（过滤无 ID 的幻觉项、去重 place_id）
                 seen_pids: set[str] = set()
                 validated = []
@@ -551,6 +557,17 @@ def _d(obj) -> dict:
     if hasattr(obj, "dict"):
         return obj.dict()
     return {}
+
+
+def _normalize_adjust_action(action: str, text: str) -> str:
+    text = text or ""
+    if any(k in text for k in ("预算", "费用", "花费", "太贵", "贵", "便宜", "调低", "降低", "省钱", "超支", "少花")):
+        return "change_budget"
+    if any(k in text for k in ("下雨", "雨天", "天气", "室内", "露天", "户外")):
+        return "change_to_indoor"
+    if any(k in text for k in ("累", "少走", "减少步行", "近一点", "近点", "距离近", "轻松", "体力", "疲劳")):
+        return "reduce_walking"
+    return action or "replace_attraction"
 
 
 def _parse_json(raw: str) -> dict:

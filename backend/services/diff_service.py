@@ -61,7 +61,7 @@ def compute_diff(
         if in_old and in_new:
             o = old_items[iid]
             n = new_items[iid]
-            if o.get("place_id") != n.get("place_id") or o.get("item_type") != n.get("item_type"):
+            if _item_changed(o, n):
                 affected_days.add(n.get("day", 0))
                 changes.append(TripChange(
                     change_type=ChangeType.REPLACE,
@@ -72,11 +72,7 @@ def compute_diff(
                     before_place_name=_item_place_name(o),
                     after_place_name=_item_place_name(n),
                     reason=_detect_change_reason(o, n),
-                    cost_change=round(
-                        float(n.get("total_cost", 0) or 0)
-                        - float(o.get("total_cost", 0) or 0),
-                        2,
-                    ),
+                    cost_change=round(_item_cost(n) - _item_cost(o), 2),
                     distance_change_m=_dist_diff(o, n),
                 ))
             else:
@@ -194,3 +190,52 @@ def _d(obj) -> dict:
     if hasattr(obj, "dict"):
         return obj.dict()
     return {}
+
+
+def _norm_text(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _item_cost(item: dict) -> float:
+    value = item.get("total_cost", item.get("cost", 0))
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _item_changed(old_item: dict, new_item: dict) -> bool:
+    if old_item.get("place_id") != new_item.get("place_id"):
+        return True
+    if old_item.get("item_type") != new_item.get("item_type"):
+        return True
+    if round(_item_cost(old_item), 2) != round(_item_cost(new_item), 2):
+        return True
+    for key in ("note", "title", "desc", "start_time", "end_time", "route"):
+        if _norm_text(old_item.get(key)) != _norm_text(new_item.get(key)):
+            return True
+    return False
+
+
+def _detect_change_reason(
+    old_item: dict,
+    new_item: dict,
+) -> str:
+    old_type = old_item.get("item_type", "")
+    new_type = new_item.get("item_type", "")
+    if old_type != new_type:
+        return f"类型从 {old_type} 调整为 {new_type}"
+    if old_item.get("place_id") != new_item.get("place_id"):
+        return "地点替换"
+    if round(_item_cost(new_item) - _item_cost(old_item), 2) != 0:
+        return "费用调整"
+    if (
+        _norm_text(old_item.get("start_time")) != _norm_text(new_item.get("start_time"))
+        or _norm_text(old_item.get("end_time")) != _norm_text(new_item.get("end_time"))
+    ):
+        return "时间调整"
+    if _norm_text(old_item.get("route")) != _norm_text(new_item.get("route")):
+        return "路线调整"
+    if any(_norm_text(old_item.get(key)) != _norm_text(new_item.get(key)) for key in ("note", "title", "desc")):
+        return "内容调整"
+    return "项目变更"

@@ -1236,11 +1236,31 @@ textarea {
 }
 
 .timeline article > div {
+  position: relative;
   min-height: 150px;
   padding: 16px 18px;
   border: 1px solid #e0e8f1;
   border-radius: 18px;
   background: #fbfdff;
+}
+
+.timeline article.is-changed > div {
+  border-color: rgba(79, 101, 255, 0.5);
+  background: linear-gradient(135deg, rgba(79, 101, 255, 0.08), rgba(18, 184, 160, 0.07) 55%, #fbfdff);
+  box-shadow: 0 14px 34px rgba(79, 101, 255, 0.12);
+}
+
+.timeline article.is-changed > div::after {
+  content: "已调整";
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e7fbf6;
+  color: #078979;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .timeline span {

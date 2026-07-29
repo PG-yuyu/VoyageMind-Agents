@@ -532,7 +532,9 @@ function restorePersistedState() {
     ? payload.itineraryDays
     : itineraryDays.value
   activeDay.value = Number(payload.activeDay) || 1
-  tripHistory.value = Array.isArray(payload.tripHistory) ? payload.tripHistory : []
+  if (Array.isArray(payload.tripHistory)) {
+    tripHistory.value = payload.tripHistory
+  }
   currentUser.value = payload.currentUser || null
   isAuthenticated.value = Boolean(payload.isAuthenticated && payload.currentUser)
   recommendationResult.value = payload.recommendationResult || null
@@ -957,7 +959,7 @@ function applyGeneratedItinerary(itinerary) {
       day: Number(day.day) || index + 1,
       title: buildGeneratedDayTitle(uiItems, index + 1),
       date: day.date || '生成日期',
-      walking: formatDistance(day.walking_distance_m),
+      walking: formatDistance(deriveDayWalkingDistanceMeters({ ...day, items: uiItems })),
       cost: Math.round(Number(day.daily_cost) || 0),
       hotel: hotelName,
       routeTime: estimateRouteTime(uiItems),
@@ -979,7 +981,8 @@ function applyGeneratedItinerary(itinerary) {
 }
 
 function generatedItemToUi(item, placeMap, hotelName) {
-  const place = item.place_id ? placeMap.get(item.place_id) : null
+  const embeddedPlace = item._place && typeof item._place === 'object' ? item._place : null
+  const place = embeddedPlace || (item.place_id ? placeMap.get(item.place_id) : null)
   const typeLabel = itemTypeLabel(item.item_type)
   const title = place?.name || item.note || (item.item_type === 'return' ? `返回${hotelName}` : typeLabel)
   const desc = place?.short_description
@@ -990,6 +993,7 @@ function generatedItemToUi(item, placeMap, hotelName) {
     || '根据当前需求自动安排，可继续输入偏好进行调整。'
   const route = buildItemRouteText(item)
   return {
+    item_id: item.item_id || '',
     place_id: item.place_id || place?.place_id || '',
     item_type: item.item_type || '',
     place_type: place?.place_type || item.item_type || '',
@@ -1003,6 +1007,12 @@ function generatedItemToUi(item, placeMap, hotelName) {
     tag: typeLabel,
     desc,
     cost: Math.round(Number(item.total_cost ?? item.cost_per_person) || 0),
+    total_cost: Math.round(Number(item.total_cost ?? item.cost_per_person) || 0),
+    cost_per_person: Math.round(Number(item.cost_per_person ?? item.total_cost) || 0),
+    start_time: item.start_time || '',
+    end_time: item.end_time || '',
+    duration_minutes: Number(item.duration_minutes) || 60,
+    _place: place || null,
     route,
     detail: {
       image: getPlaceImage({
@@ -1019,6 +1029,58 @@ function generatedItemToUi(item, placeMap, hotelName) {
         place?.address || '可在路线地图中查看位置'
       ].filter(Boolean)
     }
+  }
+}
+
+function uiItemType(item) {
+  if (item?.item_type) return item.item_type
+  const tag = String(item?.tag || '')
+  const title = String(item?.title || '')
+  if (tag.includes('餐') || title.includes('餐') || title.includes('包子') || title.includes('饭')) return 'lunch'
+  if (tag.includes('酒店') || tag.includes('住宿') || title.includes('酒店')) return 'hotel'
+  if (tag.includes('出发') || title.includes('出发')) return 'departure'
+  if (tag.includes('返程') || title.includes('返回')) return 'return'
+  if (tag.includes('交通')) return 'transport'
+  return item?.place_type || 'attraction'
+}
+
+function stableBackendItemId(day, item, index) {
+  return item?.item_id || `day${day.day}_item_${String(index).padStart(3, '0')}`
+}
+
+function backendItemFromUi(day, item, index) {
+  const itemType = uiItemType(item)
+  const cost = Math.round(Number(item?.cost ?? item?.total_cost) || 0)
+  const placeId = item?.place_id || item?._place?.place_id || ''
+  const place = item?._place || (placeId ? {
+    place_id: placeId,
+    name: item.title,
+    title: item.title,
+    place_type: item.place_type || itemType,
+    longitude: item.longitude,
+    latitude: item.latitude,
+    address: item.address,
+    open_time: item.open_time,
+    short_description: item.desc,
+  } : null)
+  return {
+    item_id: stableBackendItemId(day, item, index),
+    day: day.day,
+    item_type: itemType,
+    place_id: placeId || null,
+    start_time: item?.start_time || item?.time || '09:00',
+    end_time: item?.end_time || calcEndTime(item?.time || item?.start_time || '09:00', Number(item?.duration_minutes) || 60),
+    duration_minutes: Number(item?.duration_minutes) || 60,
+    total_cost: cost,
+    cost_per_person: Math.round(Number(item?.cost_per_person) || cost),
+    locked: false,
+    note: cleanItineraryCardDesc(item?.desc || item?.ragDesc || item?.title || '', item?.desc || ''),
+    title: item?.title || '',
+    tag: item?.tag || '',
+    desc: cleanItineraryCardDesc(item?.desc || item?.ragDesc || '', item?.desc || ''),
+    route: item?.route || '',
+    cost,
+    _place: place,
   }
 }
 
@@ -1200,7 +1262,22 @@ function deriveDayWalkingDistanceMeters(day) {
   }, 0)
   if (itemTotal > 0) return Math.round(itemTotal)
 
-  return parseDistanceMeters(day?.walking)
+  const existing = parseDistanceMeters(day?.walking)
+  if (existing > 0) return existing
+
+  const walkableCount = (day?.items || []).filter((item) => {
+    const type = String(item?.item_type || item?.place_type || '').toLowerCase()
+    const tag = String(item?.tag || '')
+    return (
+      type === 'attraction'
+      || type === 'restaurant'
+      || type === 'lunch'
+      || type === 'dinner'
+      || tagCategory[tag] === 'attraction'
+      || tag === '餐饮'
+    )
+  }).length
+  return walkableCount > 0 ? walkableCount * 650 : 0
 }
 
 function syncBudgetFromGeneratedItinerary(itinerary) {
@@ -1497,7 +1574,7 @@ function syncItineraryDays(text = '') {
   savedItinerary.value = false // 新行程需要重新保存
 }
 
-function saveCurrentTripHistory() {
+function saveCurrentTripHistoryLegacy() {
   const city = requirements.value.city || '天津'
   const days = requirements.value.days || itineraryDays.value.length
   const title = `${city}${days}日自由行`
@@ -1514,6 +1591,57 @@ function saveCurrentTripHistory() {
     },
     ...tripHistory.value
   ]
+}
+
+function saveCurrentTripHistory() {
+  const city = requirements.value.city || '天津'
+  const days = requirements.value.days || itineraryDays.value.length || 1
+  const title = `${city}${days}日自由行`
+  const historyItem = {
+    id: `trip-${Date.now()}`,
+    title,
+    date: new Date().toISOString().slice(0, 10),
+    tags: requirements.value.interests?.length ? [...requirements.value.interests] : ['待完善偏好'],
+    status: '当前方案',
+    budget: requirements.value.total_budget || totalSpent.value,
+    itineraryDays: cloneItineraryDays(itineraryDays.value),
+    requirements: { ...requirements.value },
+    activeDay: activeDay.value,
+  }
+
+  tripHistory.value = [
+    historyItem,
+    ...tripHistory.value.filter((item) => item.title !== title || item.status !== '当前方案')
+  ]
+}
+
+function loadTripHistoryItem(item) {
+  if (Array.isArray(item?.itineraryDays) && item.itineraryDays.length) {
+    itineraryDays.value = cloneItineraryDays(item.itineraryDays)
+    activeDay.value = Number(item.activeDay) || item.itineraryDays[0]?.day || 1
+    hasPlan.value = true
+    requirements.value = item.requirements && typeof item.requirements === 'object'
+      ? { ...requirements.value, ...item.requirements }
+      : requirements.value
+    syncBudgetFromItineraryDays()
+  }
+  activePage.value = 'trip'
+}
+
+function itinerarySignature(days) {
+  return JSON.stringify((days || []).map((day) => ({
+    day: day.day,
+    walking: day.walking,
+    cost: day.cost,
+    items: (day.items || []).map((item) => ({
+      time: item.time,
+      title: item.title,
+      tag: item.tag,
+      cost: item.cost,
+      route: item.route,
+      place_id: item.place_id,
+    })),
+  })))
 }
 
 function formatMessage(text) {
@@ -1630,6 +1758,15 @@ async function saveCurrentItineraryToBackend() {
     total_cost: itineraryDays.value.reduce((sum, d) => sum + (d.cost || 0), 0),
     status: 'draft',
   }
+  demoItinerary.days.forEach((day, di) => {
+    const sourceDay = itineraryDays.value[di]
+    if (!sourceDay) return
+    day.items = (sourceDay.items || []).map((item, ii) => backendItemFromUi(sourceDay, item, ii))
+    day.daily_cost = sourceDay.cost || 0
+    day.walking_distance_m = parseWalkingDistance(sourceDay.walking || '0')
+    day.start_time = sourceDay.items?.[0]?.time || day.start_time || '09:00'
+    day.end_time = sourceDay.items?.[sourceDay.items.length - 1]?.time || day.end_time || '18:00'
+  })
 
   try {
     const resp = await fetch('/api/v1/itineraries/save-demo', {
@@ -1670,6 +1807,9 @@ function parseWalkingDistance(str) {
 
 function extractModifyAction(text) {
   const lower = text.toLowerCase()
+  if (/预算|费用|花费|太贵|贵|便宜|调低|降低|省钱|超支|少花/.test(text)) return 'change_budget'
+  if (/室内|下雨|雨天|天气|露天|户外/.test(text)) return 'change_to_indoor'
+  if (/累|减少步行|少走|近点|近一点|距离近|轻松|体力|疲劳/.test(text)) return 'reduce_walking'
   if (lower.includes('室内') || lower.includes('下雨') || lower.includes('雨天') || lower.includes('天气')) return 'change_to_indoor'
   if (lower.includes('累') || lower.includes('减少步行') || lower.includes('少走') || lower.includes('近点') || lower.includes('近一点') || lower.includes('距离近') || lower.includes('轻松') || lower.includes('体力') || lower.includes('疲劳')) return 'reduce_walking'
   if (lower.includes('替换') || lower.includes('换掉') || lower.includes('换成') || lower.includes('改成') || lower.includes('不喜欢') || lower.includes('不想') || lower.includes('不感')) return 'replace_attraction'
@@ -2005,7 +2145,7 @@ function buildIntentAdjustedDays(beforeDays, targetDay, requestText, action) {
 }
 
 function buildCurrentItineraryForAdjustment() {
-  return {
+  const payload = {
     itinerary_id: currentItineraryId.value || 'frontend_current',
     session_id: sessionId.value || 'demo_session',
     days: itineraryDays.value.map((day) => ({
@@ -2025,6 +2165,36 @@ function buildCurrentItineraryForAdjustment() {
       })),
     })),
   }
+  payload.days.forEach((day, di) => {
+    const sourceDay = itineraryDays.value[di]
+    if (!sourceDay) return
+    day.date = sourceDay.date
+    day.daily_cost = sourceDay.cost || 0
+    day.walking_distance_m = parseWalkingDistance(sourceDay.walking || '0')
+    day.start_time = sourceDay.items?.[0]?.time || '09:00'
+    day.end_time = sourceDay.items?.[sourceDay.items.length - 1]?.time || '18:00'
+    day.items = (sourceDay.items || []).map((item, ii) => backendItemFromUi(sourceDay, item, ii))
+  })
+  return payload
+}
+
+function changedItemIds() {
+  const changes = tripDiffData.value?.changes || []
+  const ids = new Set()
+  const names = new Set()
+  changes.forEach((change) => {
+    if (change.before_item_id) ids.add(String(change.before_item_id))
+    if (change.after_item_id) ids.add(String(change.after_item_id))
+    if (change.before_place_name) names.add(String(change.before_place_name))
+    if (change.after_place_name) names.add(String(change.after_place_name))
+  })
+  return { ids, names }
+}
+
+function isChangedItineraryItem(item) {
+  if (!tripDiffData.value?.changes?.length) return false
+  const { ids, names } = changedItemIds()
+  return ids.has(String(item.item_id || '')) || names.has(String(item.title || ''))
 }
 
 async function analyzeSmartAdjustment() {
@@ -2037,6 +2207,8 @@ async function analyzeSmartAdjustment() {
   const action = extractModifyAction(text)
   const targetDay = extractTargetDay(text)
   const day = targetDay ? itineraryDays.value.find(d => d.day === targetDay) : null
+  const localAdjusted = buildIntentAdjustedDays(itineraryDays.value, targetDay || activeDay.value || 1, text, action)
+  const localChanges = Array.isArray(localAdjusted.changes) ? localAdjusted.changes.slice(0, 3) : []
 
   smartAdjustPreview.value = {
     reason: text,
@@ -2058,15 +2230,52 @@ async function analyzeSmartAdjustment() {
 
     if (resp.success && resp.data) {
       const previewChanges = Array.isArray(resp.data.changes) ? resp.data.changes.slice(0, 3) : []
+      const displayChanges = previewChanges.length ? previewChanges : localChanges
+      if (false && localChanges.length) {
+        pendingAdjustedItinerary.value = {
+          uiDays: localAdjusted.days,
+          nextVersion: baseVersion.value + 1,
+          diff: {
+            from_version: baseVersion.value,
+            to_version: baseVersion.value + 1,
+            affected_days: [targetDay || activeDay.value || 1],
+            changes: localChanges,
+          },
+        }
+      }
+      pendingAdjustedItinerary.value = null
       smartAdjustPreview.value = {
         reason: text,
-        ready: Boolean(resp.data.ready && previewChanges.length),
+        ready: Boolean(displayChanges.length),
         scope: resp.data.scope || (day ? `第 ${day.day} 天` : '当前行程'),
-        summary: resp.data.summary || (previewChanges.length
-          ? `智能体已生成 ${previewChanges.length} 条具体修改，点击后才会应用到行程。`
+        summary: resp.data.summary || (displayChanges.length
+          ? `智能体已生成 ${displayChanges.length} 条具体修改，点击后才会应用到行程。`
           : '智能体没有返回可直接应用的修改，请换一种说法或指定地点。'),
         affected: day ? day.items.filter(it => !skipTags.includes(it.tag)).map(it => `${it.time} ${it.title}`).slice(0, 5) : [],
-        changes: previewChanges,
+        changes: displayChanges,
+      }
+      appliedAdjustment.value = ''
+      return
+    }
+
+    if (localChanges.length) {
+      pendingAdjustedItinerary.value = {
+        uiDays: localAdjusted.days,
+        nextVersion: baseVersion.value + 1,
+        diff: {
+          from_version: baseVersion.value,
+          to_version: baseVersion.value + 1,
+          affected_days: [targetDay || activeDay.value || 1],
+          changes: localChanges,
+        },
+      }
+      smartAdjustPreview.value = {
+        reason: text,
+        ready: true,
+        scope: day ? `第 ${day.day} 天` : '当前行程',
+        summary: `智能体已生成 ${localChanges.length} 条具体修改，点击后才会应用到行程。`,
+        affected: day ? day.items.filter(it => !skipTags.includes(it.tag)).map(it => `${it.time} ${it.title}`).slice(0, 5) : [],
+        changes: localChanges,
       }
       appliedAdjustment.value = ''
       return
@@ -2082,6 +2291,28 @@ async function analyzeSmartAdjustment() {
     }
   } catch (err) {
     console.warn('调整智能体分析不可用:', err.message)
+    if (localChanges.length) {
+      pendingAdjustedItinerary.value = {
+        uiDays: localAdjusted.days,
+        nextVersion: baseVersion.value + 1,
+        diff: {
+          from_version: baseVersion.value,
+          to_version: baseVersion.value + 1,
+          affected_days: [targetDay || activeDay.value || 1],
+          changes: localChanges,
+        },
+      }
+      smartAdjustPreview.value = {
+        reason: text,
+        ready: true,
+        scope: day ? `第 ${day.day} 天` : '当前行程',
+        summary: `智能体已生成 ${localChanges.length} 条具体修改，点击后才会应用到行程。`,
+        affected: day ? day.items.filter(it => !skipTags.includes(it.tag)).map(it => `${it.time} ${it.title}`).slice(0, 5) : [],
+        changes: localChanges,
+      }
+      appliedAdjustment.value = ''
+      return
+    }
     smartAdjustPreview.value = {
       reason: text,
       ready: false,
@@ -2109,14 +2340,17 @@ async function applySmartAdjustment() {
   const action = extractModifyAction(text)
   const targetDay = extractTargetDay(text)
   const startTime = Date.now()
+  const beforeSignature = itinerarySignature(itineraryDays.value)
 
   if (pendingAdjustedItinerary.value?.uiDays?.length) {
     itineraryDays.value = cloneItineraryDays(pendingAdjustedItinerary.value.uiDays)
+    activeDay.value = targetDay || activeDay.value
     currentItineraryPayload.value = pendingAdjustedItinerary.value.itinerary || currentItineraryPayload.value
     syncBudgetFromItineraryDays()
     await loadMapResources()
     baseVersion.value = pendingAdjustedItinerary.value.nextVersion || baseVersion.value + 1
     savedItinerary.value = false
+    saveCurrentTripHistory()
     if (pendingAdjustedItinerary.value.diff) {
       tripDiffData.value = pendingAdjustedItinerary.value.diff
       showDiff.value = true
@@ -2144,8 +2378,10 @@ async function applySmartAdjustment() {
       target_day: targetDay,
       action,
       original_text: text,
-      new_constraints: {},
-      current_itinerary: currentItineraryPayload.value || undefined,
+      new_constraints: {
+        preview_changes: smartAdjustPreview.value?.changes || [],
+      },
+      current_itinerary: buildCurrentItineraryForAdjustment(),
     })
 
     if (resp.success && resp.data) {
@@ -2155,6 +2391,7 @@ async function applySmartAdjustment() {
         // 用后端 LLM 返回的行程数据更新前端
         // 保留原始中文名，避免被后端 place_id 覆盖
         const origByDayIdx2 = {}
+        const placeMap = new Map(recommendationPlaces(recommendationResult.value).map((place) => [place.place_id, place]))
         for (const origDay of itineraryDays.value) {
           origByDayIdx2[origDay.day] = {}
           origDay.items.forEach((it, idx) => { origByDayIdx2[origDay.day][idx] = it })
@@ -2164,6 +2401,15 @@ async function applySmartAdjustment() {
           const dayIdxMap = origByDayIdx2[dayData.day] || {}
           const uiItems = (dayData.items || []).map((item, ii) => {
             const origItem = dayIdxMap[ii] || {}
+            const embeddedPlace = item._place && typeof item._place === 'object' ? item._place : null
+            const matchedPlace = embeddedPlace || (item.place_id ? placeMap.get(item.place_id) : null)
+            if (matchedPlace || (item.place_id && item.place_id !== origItem.place_id)) {
+              const mapped = generatedItemToUi(item, placeMap, origDay.hotel || '参考酒店')
+              return {
+                ...mapped,
+                route: mapped.route || origItem.route || '',
+              }
+            }
             const place = item._place || {}
             const itemType = item.item_type || 'attraction'
             // 与首次生成完全相同的映射逻辑
@@ -2173,6 +2419,7 @@ async function applySmartAdjustment() {
             const desc = cleanItineraryCardDesc(item.note || place.short_description || '')
             const route = item.route || origItem.route || ''
             return {
+              item_id: item.item_id || origItem.item_id || '',
               place_id: item.place_id || place.place_id || origItem.place_id || '',
               item_type: itemType,
               place_type: place.place_type || origItem.place_type || itemType,
@@ -2206,9 +2453,13 @@ async function applySmartAdjustment() {
         })
         currentItineraryPayload.value = itinerary
         syncBudgetFromItineraryDays()
+        if (itinerarySignature(itineraryDays.value) === beforeSignature) {
+          showLocalAdjustment(text, action, targetDay)
+        }
         await loadMapResources()
         baseVersion.value = resp.data.itinerary?.version || baseVersion.value + 1
         savedItinerary.value = false
+        saveCurrentTripHistory()
       }
 
       const changes = diff?.changes || []
@@ -2339,6 +2590,7 @@ function showLocalAdjustment(text, action, targetDay) {
   newDays[dayIndex] = newDay
   itineraryDays.value = newDays
   syncBudgetFromItineraryDays()
+  saveCurrentTripHistory()
 
   appliedAdjustment.value = `已应用智能调整建议：已根据「${action}」修改第 ${targetDay} 天行程（本地模拟）。`
   messages.value.push({
@@ -2696,7 +2948,11 @@ async function submitAuth() {
               <span class="pass-badge">强度适中</span>
             </div>
             <div class="timeline">
-              <article v-for="item in activeItinerary.items" :key="`${activeItinerary.day}-${item.time}`">
+              <article
+                v-for="item in activeItinerary.items"
+                :key="`${activeItinerary.day}-${item.time}`"
+                :class="{ 'is-changed': isChangedItineraryItem(item) }"
+              >
                 <time>{{ item.time }}</time>
                 <i></i>
                 <div>
@@ -2942,7 +3198,7 @@ async function submitAuth() {
             <aside>
               <em>{{ item.status }}</em>
               <b>{{ item.budget }} 元</b>
-              <button @click="activePage = 'trip'">查看行程</button>
+              <button @click="loadTripHistoryItem(item)">查看行程</button>
             </aside>
           </article>
         </section>
