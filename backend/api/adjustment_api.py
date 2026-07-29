@@ -71,6 +71,8 @@ def _compact_preview_itinerary(itinerary: dict[str, Any], target_day: int | None
 
 def _clean_preview_changes(raw_changes: Any) -> list[dict[str, str]]:
     changes: list[dict[str, str]] = []
+    seen_sources: set[str] = set()
+    seen_pairs: set[tuple[str, str]] = set()
     if not isinstance(raw_changes, list):
         return changes
     for raw in raw_changes:
@@ -84,6 +86,12 @@ def _clean_preview_changes(raw_changes: Any) -> list[dict[str, str]]:
             continue
         if from_text.replace(" ", "") == to_text.replace(" ", ""):
             continue
+        source_key = _normalize_change_key(from_text)
+        pair_key = (source_key, _normalize_change_key(to_text))
+        if source_key in seen_sources or pair_key in seen_pairs:
+            continue
+        seen_sources.add(source_key)
+        seen_pairs.add(pair_key)
         changes.append({
             "label": label[:18],
             "from": from_text[:42],
@@ -93,6 +101,14 @@ def _clean_preview_changes(raw_changes: Any) -> list[dict[str, str]]:
         if len(changes) >= 3:
             break
     return changes
+
+
+def _normalize_change_key(value: str) -> str:
+    text = "".join(str(value or "").split())
+    for sep in ("(", "（", "->", "改为", "替换为"):
+        if sep in text:
+            text = text.split(sep, 1)[0]
+    return text[:24]
 
 
 def _make_alt_fetcher(session_id: str = "", itinerary_id: str = ""):
@@ -229,13 +245,15 @@ async def api_adjustment_preview(request: AdjustmentPreviewRequest) -> ApiRespon
         "如果用户说预算，应优先调整高消费餐饮、酒店或交通。"
         "只返回 JSON 对象，字段为 ready、scope、summary、changes。"
         "changes 每项字段为 label、from、to、why。"
+        "只返回真正必要的修改，1 条、2 条或 3 条都可以，不要为了凑满 3 条生成重复建议。"
+        "同一个原安排只能给 1 条最佳替代，不要连续输出多个替换同一地点的方案。"
     )
     user_payload = {
         "用户修改要求": request.original_text,
         "识别动作": request.action,
         "目标范围": scope,
         "当前行程": compact_days,
-        "输出要求": "最多 3 条；每条建议必须具体到原安排和新安排；不要 Markdown。",
+        "输出要求": "最多 3 条，可以只返回 1 或 2 条；不要为了凑满 3 条生成重复建议；同一个原安排只能给 1 条最佳替代；每条建议必须具体到原安排和新安排；不要 Markdown。",
     }
     result = chatbot.chat_json(
         system_prompt,

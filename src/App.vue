@@ -2197,6 +2197,32 @@ function isChangedItineraryItem(item) {
   return ids.has(String(item.item_id || '')) || names.has(String(item.title || ''))
 }
 
+function normalizeAdjustChangeKey(value) {
+  let text = String(value || '').replace(/\s+/g, '')
+  for (const sep of ['(', '（', '->', '改为', '替换为']) {
+    if (text.includes(sep)) text = text.split(sep)[0]
+  }
+  return text.slice(0, 24)
+}
+
+function uniqueAdjustChanges(changes) {
+  const list = []
+  const seenSources = new Set()
+  const seenPairs = new Set()
+  for (const change of changes || []) {
+    const fromKey = normalizeAdjustChangeKey(change.from)
+    const toKey = normalizeAdjustChangeKey(change.to)
+    const pairKey = `${fromKey}->${toKey}`
+    if (!fromKey || !toKey || fromKey === toKey) continue
+    if (seenSources.has(fromKey) || seenPairs.has(pairKey)) continue
+    seenSources.add(fromKey)
+    seenPairs.add(pairKey)
+    list.push(change)
+    if (list.length >= 3) break
+  }
+  return list
+}
+
 async function analyzeSmartAdjustment() {
   const text = smartAdjustInput.value.trim()
   if (!text) return
@@ -2229,8 +2255,8 @@ async function analyzeSmartAdjustment() {
     })
 
     if (resp.success && resp.data) {
-      const previewChanges = Array.isArray(resp.data.changes) ? resp.data.changes.slice(0, 3) : []
-      const displayChanges = previewChanges.length ? previewChanges : localChanges
+      const previewChanges = uniqueAdjustChanges(Array.isArray(resp.data.changes) ? resp.data.changes : [])
+      const displayChanges = previewChanges.length ? previewChanges : uniqueAdjustChanges(localChanges)
       if (false && localChanges.length) {
         pendingAdjustedItinerary.value = {
           uiDays: localAdjusted.days,
@@ -2379,7 +2405,7 @@ async function applySmartAdjustment() {
       action,
       original_text: text,
       new_constraints: {
-        preview_changes: smartAdjustPreview.value?.changes || [],
+        preview_changes: uniqueAdjustChanges(smartAdjustPreview.value?.changes || []),
       },
       current_itinerary: buildCurrentItineraryForAdjustment(),
     })
@@ -2918,14 +2944,17 @@ async function submitAuth() {
               <p>{{ smartAdjustPreview.summary || '系统已生成修改建议，确认后再替换当前行程。' }}</p>
             </div>
             <div class="adjust-action-zone">
-              <div class="adjust-change-list" :class="{ empty: !smartAdjustPreview.changes.length }">
-                <article v-for="change in smartAdjustPreview.changes.slice(0, 3)" :key="`${change.from}-${change.to}`">
+              <div
+                class="adjust-change-list"
+                :class="[`count-${uniqueAdjustChanges(smartAdjustPreview.changes).length}`, { empty: !uniqueAdjustChanges(smartAdjustPreview.changes).length }]"
+              >
+                <article v-for="change in uniqueAdjustChanges(smartAdjustPreview.changes)" :key="`${change.from}-${change.to}`">
                   <span>{{ change.label || '调整' }}</span>
                   <strong>{{ change.from }}</strong>
                   <p>改为：{{ change.to }}</p>
                   <small>{{ change.why }}</small>
                 </article>
-                <p v-if="!smartAdjustPreview.changes.length" class="adjust-empty-tip">没有生成可直接应用的修改，请再补充一天、地点或预算要求。</p>
+                <p v-if="!uniqueAdjustChanges(smartAdjustPreview.changes).length" class="adjust-empty-tip">没有生成可直接应用的修改，请再补充一天、地点或预算要求。</p>
               </div>
               <button
                 v-if="smartAdjustPreview.ready !== false"

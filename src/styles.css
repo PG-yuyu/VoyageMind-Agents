@@ -1509,13 +1509,25 @@ textarea {
 
 .adjust-change-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 12px;
+  align-items: stretch;
+}
+
+.adjust-change-list.count-1 {
+  grid-template-columns: minmax(260px, 1fr);
+}
+
+.adjust-change-list.count-2 {
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+}
+
+.adjust-change-list.count-3 {
+  grid-template-columns: repeat(3, minmax(190px, 1fr));
 }
 
 .adjust-action-zone {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 176px;
   gap: 12px;
   align-items: stretch;
 }
@@ -1551,9 +1563,11 @@ textarea {
 }
 
 .apply-adjust-btn {
-  align-self: center;
-  min-width: 132px;
+  align-self: stretch;
+  justify-self: stretch;
+  min-width: 0;
   height: 48px;
+  padding-inline: 16px;
   white-space: nowrap;
 }
 
