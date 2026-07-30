@@ -117,8 +117,11 @@ class CoordinatorAgent:
                         session_id=session_id,
                         itinerary_id=current_itinerary_id,
                         base_version=current_version,
+                        target_day=None,
+                        target_item_id=None,
                         action=intent.sub_intent or "replace_attraction",
                         original_text=message,
+                        current_itinerary=None,
                     )
                     # 调用成员三调整 Agent
                     mod_result = self.adjustment_agent.modify(
@@ -670,7 +673,7 @@ class CoordinatorAgent:
         不可用时降级到 PlaceRepository 全量筛选。
         """
         constraints = constraints or {}
-        indoor_only = constraints.get("indoor") or constraints.get("change_to_indoor")
+        indoor_only = bool(constraints.get("indoor") or constraints.get("change_to_indoor"))
 
         # ── 方案 A：调用成员二推荐服务（个性化） ──────────────
         try:

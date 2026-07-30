@@ -35,10 +35,9 @@ from backend.prompts.soft_preference_optimization_prompt import (
 )
 
 from backend.schemas.planning_policy import ItineraryPlanningPolicy
-from backend.schemas.preference_evaluation import SoftPreferenceEvaluation
 
 from backend.services.budget_service import calculate_budget
-from backend.services.version_service import save_version, clone_for_modification, lock_all_items
+from backend.services.version_service import save_version
 from backend.validators.hard_constraint_validator import (
     validate_hard_constraints,
     enrich_items_with_places,
@@ -131,9 +130,10 @@ class PlanningAgent:
             state.transition_to(PlanningPhase.HARD_VALIDATING)
             hard_passed = self._hard_validation_loop(state)
             if not hard_passed:
+                hard_evaluation = state.hard_evaluation or {}
                 logger.warning(
                     "硬约束修复未完全通过: %d issues",
-                    len(state.hard_evaluation.get("issues", [])),
+                    len(hard_evaluation.get("issues", [])),
                 )
 
             # ── Step 3: 软偏好评价 + 优化循环（最多 1 次） ──────────
@@ -141,9 +141,10 @@ class PlanningAgent:
                 state.transition_to(PlanningPhase.SOFT_EVALUATING)
                 soft_passed = self._soft_optimization_loop(state)
                 if not soft_passed:
+                    soft_evaluation = state.soft_evaluation or {}
                     logger.warning(
                         "软偏好优化未完全通过: %d issues",
-                        len(state.soft_evaluation.get("issues", [])),
+                        len(soft_evaluation.get("issues", [])),
                     )
 
             # ── Step 4: 完成 ────────────────────────────────────────
@@ -151,10 +152,11 @@ class PlanningAgent:
 
             # 保存首版行程
             try:
-                itinerary_id = state.itinerary.get("itinerary_id", "")
+                itinerary = state.itinerary or {}
+                itinerary_id = itinerary.get("itinerary_id", "")
                 if itinerary_id:
                     from backend.schemas.itinerary import Itinerary
-                    itinerary_obj = Itinerary(**state.itinerary)
+                    itinerary_obj = Itinerary(**itinerary)
                     save_version(itinerary_obj)
             except Exception as exc:
                 logger.warning("保存行程版本失败: %s", exc)
@@ -215,7 +217,17 @@ class PlanningAgent:
             return policy.model_dump()
         except Exception as exc:
             logger.warning("Policy 解析失败，使用默认值: %s", exc)
-            return ItineraryPlanningPolicy().model_dump()
+            return ItineraryPlanningPolicy(
+                daily_themes=[],
+                pace_strategy="normal",
+                combination_rationale="",
+                priority_order=[],
+                buffer_minutes=15,
+                rest_strategy=None,
+                indoor_outdoor_balance=None,
+                walking_control_strategy=None,
+                notes=[],
+            ).model_dump()
 
     # ====================================================================
     # Step 2: 生成初始行程
@@ -339,7 +351,7 @@ class PlanningAgent:
         """硬约束校验 + LLM 修复（最多 max_repairs 次）。"""
         while True:
             # 注入 _place 引用
-            it = state.itinerary
+            it = state.itinerary or {}
             if it and state.places:
                 enrich_items_with_places(it, state.places)
 
@@ -371,20 +383,22 @@ class PlanningAgent:
 
     def _repair_itinerary(self, state: PlanningState) -> dict[str, Any]:
         """LLM 修复行程中的硬约束问题。只替换 days 数组，保留 itinerary_id 等顶层字段。"""
-        issues = state.hard_evaluation.get("issues", [])
+        itinerary = state.itinerary or {}
+        hard_evaluation = state.hard_evaluation or {}
+        issues = hard_evaluation.get("issues", [])
         prompt = HARD_CONSTRAINT_REPAIR_PROMPT.format(
-            current_itinerary=json.dumps(state.itinerary, ensure_ascii=False, indent=2),
+            current_itinerary=json.dumps(itinerary, ensure_ascii=False, indent=2),
             validation_issues=json.dumps(issues, ensure_ascii=False, indent=2),
             places=json.dumps(state.places, ensure_ascii=False, indent=2),
         )
         raw = self._llm(prompt)
         data = self._parse_json(raw)
         if "days" in data and isinstance(data["days"], list) and len(data["days"]) > 0:
-            state.itinerary["days"] = data["days"]
+            itinerary["days"] = data["days"]
             logger.info("LLM 硬约束修复完成，更新了 %d 天", len(data["days"]))
         else:
             logger.warning("LLM 修复返回空或无效 days，保留原行程")
-        return state.itinerary
+        return itinerary
 
     # ====================================================================
     # Step 4: 软偏好评价 + 优化循环
@@ -393,11 +407,13 @@ class PlanningAgent:
     def _soft_optimization_loop(self, state: PlanningState) -> bool:
         """软偏好评价 + LLM 优化（最多 max_optimizes 次）。"""
         while state.can_optimize():
+            itinerary = state.itinerary or {}
+            hard_evaluation = state.hard_evaluation or {}
             evaluation = self._critic.evaluate(
-                itinerary=state.itinerary,
+                itinerary=itinerary,
                 requirements=state.requirements,
                 semantic_preferences=state.semantic_preferences,
-                hard_constraint_result=state.hard_evaluation,
+                hard_constraint_result=hard_evaluation,
             )
             state.soft_evaluation = evaluation.model_dump()
 
@@ -422,10 +438,12 @@ class PlanningAgent:
 
     def _optimize_itinerary(self, state: PlanningState) -> dict[str, Any]:
         """LLM 优化行程中的软偏好问题。"""
+        itinerary = state.itinerary or {}
+        soft_evaluation = state.soft_evaluation or {}
         prompt = SOFT_PREFERENCE_OPTIMIZATION_PROMPT.format(
-            current_itinerary=json.dumps(state.itinerary, ensure_ascii=False, indent=2),
+            current_itinerary=json.dumps(itinerary, ensure_ascii=False, indent=2),
             preference_evaluation=json.dumps(
-                state.soft_evaluation.get("issues", []),
+                soft_evaluation.get("issues", []),
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -434,8 +452,8 @@ class PlanningAgent:
         raw = self._llm(prompt)
         data = self._parse_json(raw)
         if "days" in data:
-            state.itinerary["days"] = data["days"]
-        return state.itinerary
+            itinerary["days"] = data["days"]
+        return itinerary
 
     # ====================================================================
     # 结果构建
