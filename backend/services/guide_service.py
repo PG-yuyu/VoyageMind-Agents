@@ -38,8 +38,9 @@ class GuideService:
         函数先构建当前景点或路线上下文；如果是首次介绍就走固定导游介绍模板，
         否则查询 RAG 并调用 Chatbot 生成回答，最后返回答案、上下文和资料来源状态。
         """
-        target_type = payload.get("target_type") or "place"
-        target = payload.get("target") or {}
+        target_type = str(payload.get("target_type") or "place")
+        raw_target = payload.get("target")
+        target = raw_target if isinstance(raw_target, dict) else {}
         message = (payload.get("message") or "").strip()
         history = payload.get("history") or []
 
@@ -91,8 +92,8 @@ class GuideService:
         先用 place_id 或名称从本地索引补全地点数据，再用前端传入 target 覆盖最新字段。
         返回内容包括标题、类型、城市、区域、地址、简介、推荐理由、开放时间、价格、标签和坐标。
         """
-        place_id = target.get("place_id") or target.get("id")
-        name = target.get("name") or ""
+        place_id = str(target.get("place_id") or target.get("id") or "")
+        name = str(target.get("name") or "")
         local = self._places.get(place_id) or self._find_by_name(name) or {}
         merged = {**local, **target}
         coordinate = merged.get("coordinate") or {}
@@ -123,8 +124,10 @@ class GuideService:
         根据 origin_place_id 和 destination_place_id 查找起终点名称和详情，
         并合并交通方式、距离、耗时、数据来源和校验状态，供导游解释两站之间怎么衔接。
         """
-        origin = self._places.get(target.get("origin_place_id")) or {}
-        destination = self._places.get(target.get("destination_place_id")) or {}
+        origin_place_id = str(target.get("origin_place_id") or "")
+        destination_place_id = str(target.get("destination_place_id") or "")
+        origin = self._places.get(origin_place_id) or {}
+        destination = self._places.get(destination_place_id) or {}
         origin_name = origin.get("name") or target.get("origin_name") or "上一站"
         destination_name = (
             destination.get("name") or target.get("destination_name") or "下一站"
@@ -132,9 +135,9 @@ class GuideService:
         return {
             "kind": "route",
             "title": f"{origin_name} → {destination_name}",
-            "origin": origin or {"place_id": target.get("origin_place_id"), "name": origin_name},
+            "origin": origin or {"place_id": origin_place_id, "name": origin_name},
             "destination": destination
-            or {"place_id": target.get("destination_place_id"), "name": destination_name},
+            or {"place_id": destination_place_id, "name": destination_name},
             "travel_mode": target.get("travel_mode") or target.get("mode") or "walking",
             "distance_m": target.get("distance_m") or target.get("distance"),
             "duration_min": target.get("duration_min") or target.get("duration"),
@@ -383,9 +386,11 @@ class GuideService:
             except Exception:
                 continue
             for item in items:
+                if not isinstance(item, dict):
+                    continue
                 place_id = item.get("place_id")
                 if place_id:
-                    index[place_id] = item
+                    index[str(place_id)] = item
         return index
 
     def _find_by_name(self, name: str) -> dict[str, Any] | None:

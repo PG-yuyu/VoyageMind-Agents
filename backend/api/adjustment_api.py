@@ -293,6 +293,8 @@ async def api_local_replan(
             target_day=target_day,
             target_item_id=target_item_id,
             new_constraints=constraints or {},
+            original_text=action,
+            current_itinerary=None,
         )
         agent = AdjustmentAgent(
             alternative_place_fetcher=_make_alt_fetcher(
