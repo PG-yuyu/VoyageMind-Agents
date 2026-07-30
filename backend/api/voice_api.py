@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import importlib
 import io
 import json
 import os
@@ -309,13 +310,13 @@ def _convert_audio_to_wav_16k(audio_bytes: bytes, filename: str) -> tuple[bytes,
         )
         if completed.returncode != 0:
             stderr = completed.stderr.decode("utf-8", errors="ignore").strip()
-            return "", f"ffmpeg audio conversion failed: {stderr or 'unknown error'}"
+            return b"", f"ffmpeg audio conversion failed: {stderr or 'unknown error'}"
 
         return Path(output_path).read_bytes(), ""
     except FileNotFoundError:
-        return "", "ffmpeg is required to convert browser audio before Baidu ASR"
+        return b"", "ffmpeg is required to convert browser audio before Baidu ASR"
     except Exception as exc:
-        return "", f"audio conversion failed: {exc}"
+        return b"", f"audio conversion failed: {exc}"
     finally:
         for path in (input_path, output_path):
             if path:
@@ -331,7 +332,7 @@ def _transcribe_with_sensevoice(audio_bytes: bytes, filename: str) -> tuple[str,
     temp_path = ""
 
     try:
-        from funasr import AutoModel
+        AutoModel = importlib.import_module("funasr").AutoModel
     except Exception as exc:
         return "", f"SenseVoice requires funasr. Please install backend requirements first: {exc}"
 
