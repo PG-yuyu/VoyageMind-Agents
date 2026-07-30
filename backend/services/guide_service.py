@@ -22,11 +22,22 @@ class GuideService:
         chatbot_service: ChatbotService | None = None,
         rag_service: RAGService | None = None,
     ) -> None:
+        """初始化地图导游服务。
+
+        可注入 ChatbotService 和 RAGService 便于测试复用；初始化时会加载本地地点索引，
+        后续回答景点或路线问题时可以用 place_id/name 补全地址、简介、标签和坐标等上下文。
+        """
         self.chatbot_service = chatbot_service or ChatbotService()
         self.rag_service = rag_service or RAGService()
         self._places = self._load_place_index()
 
     def answer(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """生成一次地图导游问答结果。
+
+        payload 包含 target_type、target、message、history 和 intro 标记。
+        函数先构建当前景点或路线上下文；如果是首次介绍就走固定导游介绍模板，
+        否则查询 RAG 并调用 Chatbot 生成回答，最后返回答案、上下文和资料来源状态。
+        """
         target_type = payload.get("target_type") or "place"
         target = payload.get("target") or {}
         message = (payload.get("message") or "").strip()
@@ -53,6 +64,11 @@ class GuideService:
         }
 
     async def stream_answer(self, payload: dict[str, Any]) -> AsyncIterator[str]:
+        """以流式 chunk 输出导游回答。
+
+        先复用 answer 生成完整导游答案，再按标点和短长度切块异步返回，
+        供前端在聊天窗口里实现逐段播放或逐段显示。
+        """
         result = self.answer(payload)
         answer = result["answer"]
         for chunk in self._stream_chunks(answer):
@@ -60,11 +76,21 @@ class GuideService:
             await asyncio.sleep(0.028)
 
     def _build_context(self, target_type: str, target: dict[str, Any]) -> dict[str, Any]:
+        """根据目标类型构建统一导游上下文。
+
+        target_type 为 route 时生成路线上下文；其他情况按景点、餐厅或酒店地点处理。
+        统一上下文会被 RAG 检索、Chatbot 提示词和前端展示共同使用。
+        """
         if target_type == "route":
             return self._build_route_context(target)
         return self._build_place_context(target)
 
     def _build_place_context(self, target: dict[str, Any]) -> dict[str, Any]:
+        """构建地点类导游上下文。
+
+        先用 place_id 或名称从本地索引补全地点数据，再用前端传入 target 覆盖最新字段。
+        返回内容包括标题、类型、城市、区域、地址、简介、推荐理由、开放时间、价格、标签和坐标。
+        """
         place_id = target.get("place_id") or target.get("id")
         name = target.get("name") or ""
         local = self._places.get(place_id) or self._find_by_name(name) or {}
@@ -92,6 +118,11 @@ class GuideService:
         }
 
     def _build_route_context(self, target: dict[str, Any]) -> dict[str, Any]:
+        """构建路线类导游上下文。
+
+        根据 origin_place_id 和 destination_place_id 查找起终点名称和详情，
+        并合并交通方式、距离、耗时、数据来源和校验状态，供导游解释两站之间怎么衔接。
+        """
         origin = self._places.get(target.get("origin_place_id")) or {}
         destination = self._places.get(target.get("destination_place_id")) or {}
         origin_name = origin.get("name") or target.get("origin_name") or "上一站"
@@ -112,6 +143,12 @@ class GuideService:
         }
 
     def _query_rag(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
+        """按当前导游对象查询 RAG 资料库。
+
+        如果用户问题为空，会自动改成“介绍当前地点”；查询时带上地点类型和名称，
+        帮助 RAGService 优先命中当前景点、餐厅、酒店或路线相关资料。
+        RAG 异常时返回空来源，避免导游功能中断。
+        """
         if not message:
             message = f"介绍{context['title']}"
         try:
@@ -131,6 +168,12 @@ class GuideService:
         history: list[dict[str, Any]],
         rag_result: dict[str, Any],
     ) -> str:
+        """调用 Chatbot 生成导游回答。
+
+        系统提示限定回答范围为天津旅行，并要求优先使用当前地点/路线数据和 RAG 资料。
+        user_payload 会携带用户问题、当前导游对象、最近对话和检索结果；
+        如果模型失败，则降级到 _fallback_answer。
+        """
         system = (
             "你是天津自由行系统里的 AI 导游，只讲天津旅行。"
             "你要像现场导游一样讲解当前地图上被点击的景点、餐厅、酒店或路线。"
@@ -154,11 +197,21 @@ class GuideService:
             return self._fallback_answer(message, context)
 
     def _intro_answer(self, context: dict[str, Any]) -> str:
+        """生成首次点击对象时的导游开场介绍。
+
+        路线对象走 _route_intro，地点对象走 _place_intro。
+        这个分支不查 RAG，目的是快速给前端一个稳定、自然的首屏讲解。
+        """
         if context["kind"] == "route":
             return self._route_intro(context)
         return self._place_intro(context)
 
     def _place_intro(self, context: dict[str, Any]) -> str:
+        """生成景点、餐厅或酒店的固定介绍模板。
+
+        从上下文中读取名称、类型、简介、推荐理由、区域、地址、开放时间、价格和标签，
+        组织成适合聊天气泡展示的短段落和要点，并提示用户可以继续追问。
+        """
         title = context["title"]
         type_label = self._type_label(context.get("place_type"))
         description = context.get("description") or "这里是本次天津行程中的一个推荐地点。"
@@ -187,6 +240,11 @@ class GuideService:
         return "\n".join(lines)
 
     def _route_intro(self, context: dict[str, Any]) -> str:
+        """生成路线对象的固定介绍模板。
+
+        读取路线标题、交通方式、距离和耗时，说明这段路线在行程衔接中的作用，
+        并给出缓冲时间、体力下降或下雨时的调整建议。
+        """
         title = context["title"]
         mode = self._mode_label(context.get("travel_mode"))
         distance = self._distance_text(context.get("distance_m"))
@@ -206,6 +264,11 @@ class GuideService:
         )
 
     def _fallback_answer(self, message: str, context: dict[str, Any]) -> str:
+        """在 Chatbot 不可用时生成导游兜底回答。
+
+        路线对象返回交通衔接和调整建议；地点对象返回简介、看点、时间和预算提醒。
+        该函数只使用上下文已有字段，不伪造官方开放时间、票价或资料来源。
+        """
         if context["kind"] == "route":
             return (
                 f"{context['title']} 这段路线可以作为当前行程的衔接段来看。\n\n"
@@ -229,6 +292,11 @@ class GuideService:
 
     @staticmethod
     def _stream_chunks(text: str) -> list[str]:
+        """把完整回答切成适合流式展示的小片段。
+
+        遇到中文标点或缓冲区达到一定长度就切一段，既保证前端有流式效果，
+        又避免每个字符都触发一次渲染造成卡顿。
+        """
         chunks: list[str] = []
         buffer = ""
         for char in text:
@@ -242,6 +310,11 @@ class GuideService:
 
     @staticmethod
     def _format_answer(answer: str) -> str:
+        """清理模型回答的 Markdown 样式。
+
+        导游聊天气泡不需要标题、粗体和复杂列表；这里把 Markdown 粗体、标题和列表符号
+        转成统一的纯文本要点格式，避免前端展示过重。
+        """
         text = (answer or "").strip()
         text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
         text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
@@ -252,6 +325,11 @@ class GuideService:
 
     @staticmethod
     def _distance_text(value: Any) -> str:
+        """把米制距离格式化成人类可读文本。
+
+        1000 米及以上显示为公里，一公里以下显示为米；无法转换的值返回空字符串，
+        方便调用方拼接路线说明时自动跳过缺失字段。
+        """
         try:
             distance = float(value)
         except (TypeError, ValueError):
@@ -262,6 +340,11 @@ class GuideService:
 
     @staticmethod
     def _duration_text(value: Any) -> str:
+        """把分钟数格式化成“约 N 分钟”。
+
+        接受数字或可转换成数字的字符串；无法转换时返回空字符串，
+        供路线介绍里按需拼接。
+        """
         try:
             duration = float(value)
         except (TypeError, ValueError):
@@ -270,6 +353,11 @@ class GuideService:
 
     @staticmethod
     def _mode_label(value: str | None) -> str:
+        """把内部交通方式枚举转换成中文展示文本。
+
+        支持 walking、transit、driving、bicycling；未知值原样返回，
+        避免新交通方式暂未配置时显示为空。
+        """
         return {
             "walking": "步行",
             "transit": "公共交通",
@@ -278,6 +366,12 @@ class GuideService:
         }.get(value or "", value or "")
 
     def _load_place_index(self) -> dict[str, dict[str, Any]]:
+        """加载本地地点、餐厅和酒店数据索引。
+
+        从 data/places.json、data/restaurants.json、data/hotels.json 读取数据，
+        按 place_id 建立字典索引。文件不存在或解析失败时跳过，
+        确保导游服务不会因为某个数据文件异常而无法启动。
+        """
         root = Path(__file__).resolve().parents[2]
         index: dict[str, dict[str, Any]] = {}
         for filename in ("places.json", "restaurants.json", "hotels.json"):
@@ -295,6 +389,11 @@ class GuideService:
         return index
 
     def _find_by_name(self, name: str) -> dict[str, Any] | None:
+        """按名称在本地地点索引中做宽松匹配。
+
+        当前端只传了名称没有传 place_id 时，用完全相等、包含和被包含三种方式查找地点。
+        找到后返回地点详情，找不到返回 None。
+        """
         if not name:
             return None
         for item in self._places.values():
@@ -305,6 +404,11 @@ class GuideService:
 
     @staticmethod
     def _type_label(place_type: str | None) -> str:
+        """把地点类型枚举转换成中文标签。
+
+        attraction 显示为景点，restaurant 显示为餐饮地点，hotel 显示为酒店；
+        未知类型统一显示为地点。
+        """
         return {
             "attraction": "景点",
             "restaurant": "餐饮地点",

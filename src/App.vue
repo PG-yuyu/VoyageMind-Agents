@@ -5,10 +5,12 @@ import {
   createSession,
   fetchKnowledgeDocuments,
   fetchMapResourcesByPlaceIds,
+  fetchUserState,
   getMockMapResources,
   healthCheck,
   loginAccount,
   registerAccount,
+  saveUserState,
   streamPlanMessage,
   streamMessage,
   understandVoice,
@@ -51,6 +53,8 @@ const sessionId = ref('')
 const apiError = ref('')
 const hasPlan = ref(false)
 const STORAGE_KEY = 'voyage-mind-member1-state'
+let restoringRemoteState = false
+let remoteSaveTimer = null
 
 const messages = ref([])
 
@@ -449,10 +453,14 @@ onMounted(async () => {
       sessionId.value = `local_${Date.now()}`
     }
   }
+  if (isAuthenticated.value && currentUser.value?.user_id) {
+    await restoreRemoteStateForUser(currentUser.value)
+  }
 })
 
 onBeforeUnmount(() => {
   voiceObjectUrls.forEach((url) => URL.revokeObjectURL(url))
+  if (remoteSaveTimer) window.clearTimeout(remoteSaveTimer)
 })
 
 watch(
@@ -506,6 +514,7 @@ function persistState() {
   } catch (error) {
     apiError.value = '本地历史保存空间不足，部分记录可能无法持久化。'
   }
+  queueRemoteStateSave(payload)
 }
 
 function restorePersistedState() {
@@ -548,6 +557,110 @@ function restorePersistedState() {
   budget.value = Array.isArray(payload.budget) && payload.budget.length ? payload.budget : budget.value
   currentItineraryId.value = payload.currentItineraryId || ''
   baseVersion.value = payload.baseVersion || 1
+}
+
+function buildPersistedPayload() {
+  return {
+    activePage: activePage.value,
+    sessionId: sessionId.value,
+    hasPlan: hasPlan.value,
+    messages: messages.value,
+    requirements: requirements.value,
+    itineraryDays: itineraryDays.value,
+    activeDay: activeDay.value,
+    tripHistory: tripHistory.value,
+    currentUser: currentUser.value,
+    isAuthenticated: isAuthenticated.value,
+    recommendationResult: recommendationResult.value,
+    currentItineraryPayload: currentItineraryPayload.value,
+    recommendedRoutes: recommendedRoutes.value,
+    mapResources: mapResources.value,
+    documents: documents.value,
+    uploadHint: uploadHint.value,
+    budget: budget.value,
+    currentItineraryId: currentItineraryId.value,
+    baseVersion: baseVersion.value,
+  }
+}
+
+function applyPersistedPayload(payload) {
+  if (!payload || typeof payload !== 'object') return
+  activePage.value = payload.activePage || 'plan'
+  sessionId.value = payload.sessionId || ''
+  hasPlan.value = Boolean(payload.hasPlan)
+  messages.value = Array.isArray(payload.messages)
+    ? payload.messages.filter((message) => !isWorkflowChatMessage(message))
+    : []
+  requirements.value = payload.requirements && typeof payload.requirements === 'object'
+    ? { ...requirements.value, ...payload.requirements }
+    : requirements.value
+  itineraryDays.value = Array.isArray(payload.itineraryDays) && payload.itineraryDays.length
+    ? payload.itineraryDays
+    : itineraryDays.value
+  activeDay.value = Number(payload.activeDay) || 1
+  if (Array.isArray(payload.tripHistory)) {
+    tripHistory.value = payload.tripHistory
+  }
+  currentUser.value = payload.currentUser || currentUser.value
+  isAuthenticated.value = Boolean(payload.isAuthenticated && currentUser.value)
+  recommendationResult.value = payload.recommendationResult || null
+  currentItineraryPayload.value = payload.currentItineraryPayload || null
+  recommendedRoutes.value = Array.isArray(payload.recommendedRoutes) ? payload.recommendedRoutes : []
+  mapResources.value = Array.isArray(payload.mapResources) && payload.mapResources.length
+    ? payload.mapResources
+    : mapResources.value
+  documents.value = Array.isArray(payload.documents) ? payload.documents : documents.value
+  uploadHint.value = payload.uploadHint || uploadHint.value
+  budget.value = Array.isArray(payload.budget) && payload.budget.length ? payload.budget : budget.value
+  currentItineraryId.value = payload.currentItineraryId || ''
+  baseVersion.value = payload.baseVersion || 1
+}
+
+function queueRemoteStateSave(payload = buildPersistedPayload()) {
+  if (restoringRemoteState || !isAuthenticated.value || !currentUser.value?.user_id) return
+  if (remoteSaveTimer) window.clearTimeout(remoteSaveTimer)
+  remoteSaveTimer = window.setTimeout(() => {
+    remoteSaveTimer = null
+    void saveRemoteState(payload)
+  }, 700)
+}
+
+async function saveRemoteState(payload = buildPersistedPayload()) {
+  if (!isAuthenticated.value || !currentUser.value?.user_id) return
+  try {
+    await saveUserState(
+      currentUser.value.user_id,
+      currentUser.value.username || currentUser.value.nickname || '',
+      payload
+    )
+  } catch (_error) {
+    // Remote history is best-effort; localStorage still keeps the current browser recoverable.
+  }
+}
+
+async function restoreRemoteStateForUser(user) {
+  if (!user?.user_id) return
+  restoringRemoteState = true
+  try {
+    const result = await fetchUserState(user.user_id)
+    const remoteState = result?.state
+    if (remoteState && typeof remoteState === 'object') {
+      applyPersistedPayload({
+        ...remoteState,
+        currentUser: user,
+        isAuthenticated: true
+      })
+    } else {
+      currentUser.value = user
+      isAuthenticated.value = true
+      await saveRemoteState(buildPersistedPayload())
+    }
+  } catch (_error) {
+    currentUser.value = user
+    isAuthenticated.value = true
+  } finally {
+    restoringRemoteState = false
+  }
 }
 
 function isWorkflowChatMessage(message) {
@@ -1134,26 +1247,156 @@ function localPictureById(placeId = '') {
 function localPictureIdByTitle(title = '') {
   const text = String(title || '')
   const titleMap = [
+    ['天津瑞吉金融街酒店', 'tj_hotel_001'],
+    ['瑞吉金融街酒店', 'tj_hotel_001'],
+    ['天津丽思卡尔顿酒店', 'tj_hotel_002'],
+    ['丽思卡尔顿酒店', 'tj_hotel_002'],
+    ['天津中心唐拉雅秀酒店', 'tj_hotel_003'],
+    ['唐拉雅秀酒店', 'tj_hotel_003'],
+    ['天津君隆威斯汀酒店', 'tj_hotel_004'],
+    ['君隆威斯汀酒店', 'tj_hotel_004'],
+    ['天津四季酒店', 'tj_hotel_005'],
+    ['四季酒店', 'tj_hotel_005'],
+    ['天津香格里拉大酒店', 'tj_hotel_006'],
+    ['香格里拉大酒店', 'tj_hotel_006'],
+    ['天津富力万达文华酒店', 'tj_hotel_007'],
+    ['富力万达文华酒店', 'tj_hotel_007'],
+    ['天津海河假日酒店', 'tj_hotel_008'],
+    ['海河假日酒店', 'tj_hotel_008'],
+    ['天津泛太平洋大酒店', 'tj_hotel_009'],
+    ['泛太平洋大酒店', 'tj_hotel_009'],
+    ['天津水游城丽筠酒店', 'tj_hotel_010'],
+    ['水游城丽筠酒店', 'tj_hotel_010'],
+    ['西北角店', 'tj_hotel_010'],
+    ['天津康莱德酒店', 'tj_hotel_011'],
+    ['康莱德酒店', 'tj_hotel_011'],
+    ['泰达中心酒店', 'tj_hotel_012'],
+    ['全季酒店（天津火车站津湾广场店）', 'tj_hotel_013'],
+    ['全季酒店', 'tj_hotel_013'],
+    ['汉庭酒店（天津之眼店）', 'tj_hotel_014'],
+    ['汉庭酒店', 'tj_hotel_014'],
+    ['99优选酒店（天津之眼古文化街店）', 'tj_hotel_015'],
+    ['99优选酒店', 'tj_hotel_015'],
+    ['如家酒店（天津之眼金狮桥地铁站店）', 'tj_hotel_016'],
+    ['如家酒店', 'tj_hotel_016'],
+    ['金佰汇酒店（天津之眼中山路地铁站店）', 'tj_hotel_017'],
+    ['金佰汇酒店', 'tj_hotel_017'],
+    ['万丽天津宾馆', 'tj_hotel_018'],
+    ['天津第一饭店', 'tj_hotel_019'],
+    ['第一饭店', 'tj_hotel_019'],
+    ['天津瑞湾开元名都酒店', 'tj_hotel_020'],
+    ['瑞湾开元名都酒店', 'tj_hotel_020'],
+    ['狗不理（天津总店）', 'tj_restaurant_001'],
+    ['狗不理', 'tj_restaurant_001'],
+    ['耳朵眼会馆（鼓楼商业街店）', 'tj_restaurant_002'],
+    ['耳朵眼会馆', 'tj_restaurant_002'],
+    ['桂园餐厅（五大道店）', 'tj_restaurant_003'],
+    ['桂园餐厅', 'tj_restaurant_003'],
+    ['红旗饭庄（总店）', 'tj_restaurant_004'],
+    ['红旗饭庄', 'tj_restaurant_004'],
+    ['砂锅李（九江路店）', 'tj_restaurant_005'],
+    ['砂锅李', 'tj_restaurant_005'],
+    ['起士林大饭店（小白楼店）', 'tj_restaurant_006'],
+    ['起士林大饭店', 'tj_restaurant_006'],
+    ['成桂餐厅（河北路店）', 'tj_restaurant_007'],
+    ['成桂餐厅', 'tj_restaurant_007'],
+    ['津菜典藏（天津之眼店）', 'tj_restaurant_008'],
+    ['津菜典藏', 'tj_restaurant_008'],
+    ['青年餐厅（津湾店）', 'tj_restaurant_009'],
+    ['青年餐厅', 'tj_restaurant_009'],
+    ['燕春楼清真餐厅', 'tj_restaurant_010'],
+    ['燕春楼', 'tj_restaurant_010'],
+    ['普天和酒楼（中山路店）', 'tj_restaurant_011'],
+    ['普天和酒楼', 'tj_restaurant_011'],
+    ['李记锅巴菜铺（洪湖里店）', 'tj_restaurant_012'],
+    ['李记锅巴菜铺', 'tj_restaurant_012'],
+    ['金环西餐厅（平山道店）', 'tj_restaurant_013'],
+    ['金环西餐厅', 'tj_restaurant_013'],
+    ['上海米线（滨江道店）', 'tj_restaurant_014'],
+    ['上海米线', 'tj_restaurant_014'],
+    ['港厨粤菜海鲜（台儿庄路店）', 'tj_restaurant_015'],
+    ['港厨粤菜海鲜', 'tj_restaurant_015'],
+    ['渔民新村（总店）', 'tj_restaurant_016'],
+    ['渔民新村', 'tj_restaurant_016'],
+    ['二姑包子（四马路店）', 'tj_restaurant_017'],
+    ['二姑包子', 'tj_restaurant_017'],
+    ['局儿烧烤火锅（生态城店）', 'tj_restaurant_018'],
+    ['局儿烧烤火锅', 'tj_restaurant_018'],
+    ['野果yeego（天津万象城店）', 'tj_restaurant_019'],
+    ['野果yeego', 'tj_restaurant_019'],
+    ['海底捞火锅（新开路店）', 'tj_restaurant_020'],
+    ['海底捞火锅', 'tj_restaurant_020'],
+    ['利德顺小老饭庄（西马路店）', 'tj_restaurant_021'],
+    ['利德顺小老饭庄', 'tj_restaurant_021'],
+    ['东林餐厅五大道（河北路店）', 'tj_restaurant_022'],
+    ['东林餐厅五大道', 'tj_restaurant_022'],
+    ['二嫂子煎饼果子（卫津路总店）', 'tj_restaurant_024'],
+    ['二嫂子煎饼果子', 'tj_restaurant_024'],
+    ['永旺羊汤（红桥总店）', 'tj_restaurant_025'],
+    ['永旺羊汤', 'tj_restaurant_025'],
+    ['益发顺清真（金刚桥店）', 'tj_restaurant_026'],
+    ['益发顺清真', 'tj_restaurant_026'],
+    ['老六涮羊肉（金街店）', 'tj_restaurant_027'],
+    ['老六涮羊肉', 'tj_restaurant_027'],
+    ['南楼煎饼（南楼总店）', 'tj_restaurant_028'],
+    ['南楼煎饼', 'tj_restaurant_028'],
+    ['洋味食屋（天大店）', 'tj_restaurant_029'],
+    ['洋味食屋', 'tj_restaurant_029'],
     ['天津博物馆', 'tj_place_001'],
     ['天津自然博物馆', 'tj_place_002'],
     ['天津科学技术馆', 'tj_place_003'],
+    ['天塔湖风景区', 'tj_place_004'],
     ['天塔湖', 'tj_place_004'],
+    ['天津五大道文化旅游区', 'tj_place_005'],
+    ['五大道文化旅游区', 'tj_place_005'],
     ['五大道', 'tj_place_005'],
     ['民园广场', 'tj_place_006'],
     ['瓷房子', 'tj_place_007'],
     ['张学良故居', 'tj_place_008'],
-    ['意式风情区', 'tj_place_009'],
-    ['海河夜景', 'tj_place_010'],
-    ['天津之眼', 'tj_place_011'],
+    ['静园', 'tj_place_009'],
+    ['西开总堂', 'tj_place_010'],
+    ['天主教天津教区西开总堂', 'tj_place_010'],
+    ['津湾广场', 'tj_place_011'],
     ['古文化街', 'tj_place_012'],
-    ['鼓楼', 'tj_place_013'],
-    ['狗不理', 'tj_restaurant_001'],
-    ['99优选酒店', 'tj_hotel_015'],
-    ['全季酒店', 'tj_hotel_013'],
-    ['汉庭酒店', 'tj_hotel_014'],
-    ['如家酒店', 'tj_hotel_016']
+    ['天津文庙博物馆', 'tj_place_013'],
+    ['文庙博物馆', 'tj_place_013'],
+    ['周恩来邓颖超纪念馆', 'tj_place_014'],
+    ['水上公园', 'tj_place_015'],
+    ['南翠屏公园', 'tj_place_016'],
+    ['天津动物园', 'tj_place_017'],
+    ['意式风情区', 'tj_place_018'],
+    ['梁启超纪念馆', 'tj_place_019'],
+    ['天津梁启超纪念馆', 'tj_place_019'],
+    ['大悲禅院', 'tj_place_020'],
+    ['天津之眼', 'tj_place_021'],
+    ['天津之眼摩天轮', 'tj_place_021'],
+    ['平津战役纪念馆', 'tj_place_022'],
+    ['西沽公园', 'tj_place_023'],
+    ['天津邮政博物馆', 'tj_place_024'],
+    ['邮政博物馆', 'tj_place_024'],
+    ['天津市老城博物馆', 'tj_place_025'],
+    ['老城博物馆', 'tj_place_025'],
+    ['天津鼓楼博物馆', 'tj_place_025'],
+    ['鼓楼博物馆', 'tj_place_025'],
+    ['鼓楼', 'tj_place_025'],
+    ['人民公园', 'tj_place_026'],
+    ['天津民俗博物馆', 'tj_place_027'],
+    ['民俗博物馆', 'tj_place_027'],
+    ['国家海洋博物馆', 'tj_place_028'],
+    ['大沽口炮台遗址博物馆', 'tj_place_029'],
+    ['大沽口炮台', 'tj_place_029'],
+    ['滨海新区图书馆', 'tj_place_030'],
+    ['天津市滨海新区图书馆中心馆', 'tj_place_030'],
+    ['泰达航母主题公园', 'tj_place_031'],
+    ['天津泰达航母主题公园', 'tj_place_031'],
+    ['东疆亲海公园', 'tj_place_032'],
+    ['桥园公园', 'tj_place_033']
   ]
-  const matched = titleMap.find(([name]) => text.includes(name))
+  const normalizedText = text.replace(/^天津市?/, '')
+  const matched = [...titleMap].sort((a, b) => b[0].length - a[0].length).find(([name]) => (
+    text.includes(name)
+    || normalizedText.includes(String(name).replace(/^天津市?/, ''))
+  ))
   return matched?.[1] || ''
 }
 
@@ -1187,7 +1430,7 @@ function generatedPlaceImage(type) {
   if (type === 'hotel') {
     return 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=900&q=80'
   }
-  return 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80'
+  return 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=900&q=80'
 }
 
 function buildItemRouteText(item) {
@@ -1800,14 +2043,38 @@ function formatMessage(text) {
 }
 
 function openPlaceDetail(item) {
-  const detail = item.detail || placeDetails[item.title] || {
-    title: item.title,
-    desc: item.ragDesc || item.desc,
-    tips: [item.tag, item.route, '可根据天气、体力和预算继续调整']
-  }
+  const result = recommendationResult.value || {}
+  const placesById = new Map(
+    recommendationPlaces(result)
+      .filter((place) => place?.place_id)
+      .map((place) => [place.place_id, place])
+  )
+  const embeddedPlace = item?._place && typeof item._place === 'object' ? item._place : null
+  const placeId = item?.place_id || embeddedPlace?.place_id || ''
+  const currentPlace = embeddedPlace || placesById.get(placeId) || {}
+  const placeMatchesCurrentCard = placeMatchesDisplayTitle(currentPlace, item?.title)
+  const staticDetail = placeDetails[item?.title] || {}
+  const dynamicDetail = buildItemDetail(
+    item,
+    currentPlace,
+    item?.title || currentPlace.name || staticDetail.title || '当前地点',
+    item?.ragDesc || item?.desc || staticDetail.desc || '',
+    item?.route || ''
+  )
   selectedPlace.value = {
-    ...detail,
-    image: getPlaceImage(item) || detail.image
+    ...staticDetail,
+    ...dynamicDetail,
+    title: dynamicDetail.title || item?.title || staticDetail.title || '当前地点',
+    desc: dynamicDetail.desc || item?.desc || staticDetail.desc || '暂无地点摘要',
+    tips: dynamicDetail.tips?.length
+      ? dynamicDetail.tips
+      : [item?.tag, item?.route, '可根据天气、体力和预算继续调整'].filter(Boolean),
+    image: getPlaceImage({
+      place_id: placeMatchesCurrentCard ? placeId : '',
+      item_type: item?.item_type,
+      place_type: placeMatchesCurrentCard ? (currentPlace.place_type || item?.place_type) : item?.place_type,
+      title: dynamicDetail.title || item?.title
+    }) || dynamicDetail.image || staticDetail.image
   }
 }
 
@@ -1981,6 +2248,45 @@ function normalizeItineraryText(value) {
   return String(value || '').replace(/\s+/g, '').replace(/[，。；：、,.·•]/g, '')
 }
 
+const knownPlaceNameFragments = [
+  '天津博物馆',
+  '天津自然博物馆',
+  '天津科学技术馆',
+  '天塔湖',
+  '五大道',
+  '五大道文化旅游区',
+  '民园广场',
+  '瓷房子',
+  '张学良故居',
+  '意式风情区',
+  '海河夜景',
+  '天津之眼',
+  '天津之眼摩天轮',
+  '古文化街',
+  '鼓楼',
+  '平津战役纪念馆',
+  '津湾广场',
+  '静园'
+]
+
+function placeMatchesDisplayTitle(place, title) {
+  const placeName = normalizeItineraryText(place?.name)
+  const displayTitle = normalizeItineraryText(title)
+  if (!placeName || !displayTitle) return true
+  return placeName === displayTitle || placeName.includes(displayTitle) || displayTitle.includes(placeName)
+}
+
+function textMatchesDisplayTitle(text, title) {
+  const body = normalizeItineraryText(text)
+  const displayTitle = normalizeItineraryText(title)
+  if (!body || !displayTitle) return true
+  const matchedPlace = knownPlaceNameFragments
+    .map((name) => normalizeItineraryText(name))
+    .find((name) => name && body.includes(name))
+  if (!matchedPlace) return true
+  return matchedPlace === displayTitle || matchedPlace.includes(displayTitle) || displayTitle.includes(matchedPlace)
+}
+
 function buildFallbackItemDesc(item, place, title) {
   const type = item?.item_type || place?.place_type || ''
   if (type === 'departure') return '出发准备，预留办理、集合和交通衔接时间。'
@@ -2006,6 +2312,7 @@ function buildItineraryItemDesc(item, place, title, fallback = '') {
   for (const candidate of candidates) {
     const desc = cleanItineraryCardDesc(candidate)
     if (!desc) continue
+    if (!textMatchesDisplayTitle(desc, title)) continue
     const descKey = normalizeItineraryText(desc)
     if (!descKey || descKey === titleKey) continue
     return desc
@@ -2015,22 +2322,23 @@ function buildItineraryItemDesc(item, place, title, fallback = '') {
 }
 
 function buildItemDetail(item, place, title, desc, route = '') {
-  const detailTitle = cleanItineraryTitle(place?.name || title)
-  const detailDesc = buildItineraryItemDesc(item, place, detailTitle, desc || '暂无地点摘要')
+  const safePlace = placeMatchesDisplayTitle(place, title) ? (place || {}) : {}
+  const detailTitle = cleanItineraryTitle(title || safePlace?.name)
+  const detailDesc = buildItineraryItemDesc(item, safePlace, detailTitle, desc || '暂无地点摘要')
   return {
-    image: place?.image || place?.image_url || getPlaceImage({
-      place_id: item?.place_id || place?.place_id,
+    image: safePlace?.image || safePlace?.image_url || getPlaceImage({
+      place_id: placeMatchesDisplayTitle(place, title) ? (item?.place_id || safePlace?.place_id) : '',
       item_type: item?.item_type,
-      place_type: place?.place_type,
+      place_type: safePlace?.place_type,
       title: detailTitle
     }),
     title: detailTitle,
     desc: detailDesc,
     tips: [
-      item?.tag || typeToTag(item?.item_type || 'attraction', item || {}, place || {}),
-      route || item?.route || place?.address || '',
-      place?.open_time || '',
-      place?.recommend_reason || item?.note || '',
+      item?.tag || typeToTag(item?.item_type || 'attraction', item || {}, safePlace || {}),
+      route || item?.route || safePlace?.address || '',
+      safePlace?.open_time || '',
+      safePlace?.recommend_reason || item?.note || '',
     ].filter(Boolean).slice(0, 4),
   }
 }
@@ -2652,35 +2960,43 @@ async function applySmartAdjustment() {
             }
             const place = item._place || {}
             const itemType = item.item_type || 'attraction'
+            const resolvedPlace = place && Object.keys(place).length
+              ? place
+              : (
+                  item.place_id && origItem.place_id === item.place_id && origItem._place
+                    ? origItem._place
+                    : null
+                )
             // 与首次生成完全相同的映射逻辑
             const title = (itemType === 'departure' || itemType === 'return')
               ? (item.note || itemType)
-              : (place.name || item.note || item.place_id || itemType)
+              : (resolvedPlace?.name || item.note || item.place_id || itemType)
             const cleanTitle = cleanItineraryTitle(title)
-            const desc = buildItineraryItemDesc(item, place, cleanTitle)
+            const desc = buildItineraryItemDesc(item, resolvedPlace || {}, cleanTitle)
             const route = item.route || origItem.route || ''
             const unitCost = Number(item.cost_per_person ?? item.total_cost ?? item.cost ?? origItem.cost_per_person ?? origItem._unit_cost ?? origItem.cost) || 0
             return {
               item_id: item.item_id || origItem.item_id || '',
-              place_id: item.place_id || place.place_id || origItem.place_id || '',
+              place_id: item.place_id || resolvedPlace?.place_id || origItem.place_id || '',
               item_type: itemType,
-              place_type: place.place_type || origItem.place_type || itemType,
-              longitude: place.longitude ?? place.lng ?? item.longitude ?? item.lng ?? origItem.longitude ?? null,
-              latitude: place.latitude ?? place.lat ?? item.latitude ?? item.lat ?? origItem.latitude ?? null,
-              address: place.address || item.address || origItem.address || '',
-              open_time: place.open_time || origItem.open_time || '',
-              verified: place.verified !== false,
+              place_type: resolvedPlace?.place_type || origItem.place_type || itemType,
+              longitude: resolvedPlace?.longitude ?? resolvedPlace?.lng ?? item.longitude ?? item.lng ?? origItem.longitude ?? null,
+              latitude: resolvedPlace?.latitude ?? resolvedPlace?.lat ?? item.latitude ?? item.lat ?? origItem.latitude ?? null,
+              address: resolvedPlace?.address || item.address || origItem.address || '',
+              open_time: resolvedPlace?.open_time || origItem.open_time || '',
+              verified: resolvedPlace?.verified !== false,
               time: item.start_time || origItem.time || '09:00',
               title: cleanTitle,
-              tag: typeToTag(itemType, item, place),
+              tag: typeToTag(itemType, item, resolvedPlace || {}),
               desc,
-              ragDesc: place.rag_description || '',
+              ragDesc: resolvedPlace?.rag_description || '',
               cost: item.total_cost || origItem.cost || 0,
               total_cost: item.total_cost || origItem.total_cost || origItem.cost || 0,
               cost_per_person: Math.round(unitCost),
               _unit_cost: unitCost,
               route,
-              detail: buildItemDetail(item, place, title, desc, route),
+              _place: resolvedPlace,
+              detail: buildItemDetail(item, resolvedPlace || {}, title, desc, route),
             }
           })
           return {
@@ -2924,21 +3240,23 @@ async function submitAuth() {
     return
   }
 
+  let user = null
   try {
-    const user = authMode.value === 'login'
+    user = authMode.value === 'login'
       ? await loginAccount(username, password)
       : await registerAccount(username, password, nickname)
-    currentUser.value = user
   } catch (error) {
-    currentUser.value = {
+    user = {
       user_id: `local_${username}`,
       username,
       nickname: nickname || username,
       token: 'local-demo-token'
     }
   } finally {
+    currentUser.value = user
     isAuthenticated.value = true
     authOpen.value = false
+    await restoreRemoteStateForUser(user)
   }
 }
 </script>

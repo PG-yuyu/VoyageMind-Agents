@@ -41,6 +41,12 @@ class CoordinatorAgent:
         | None = None,
         adjustment_agent: AdjustmentAgent | None = None,
     ) -> None:
+        """初始化总控 Agent 依赖。
+
+        总控需要串起意图识别、需求抽取、工作流轨迹、RAG 问答、成员二推荐和成员三调整。
+        这里允许外部注入 Chatbot/RAG/推荐/调整服务，方便测试或复用同一实例；
+        未注入时使用项目默认实现，并把替代地点查询函数传给 AdjustmentAgent。
+        """
         self.chatbot_service = chatbot_service or ChatbotService()
         self.intent_agent = IntentAgent(self.chatbot_service)
         self.requirement_adapter = RequirementAdapter(self.chatbot_service)
@@ -54,6 +60,12 @@ class CoordinatorAgent:
         )
 
     def run(self, session_id: str, message: str) -> ChatResponse:
+        """处理一次同步对话请求。
+
+        该入口负责完整的主流程编排：写入用户消息、识别意图、抽取需求、构建 trace，
+        再按 travel_qa / modify_trip / create_trip 三个分支分别调用 RAG、调整 Agent 或推荐+规划链路。
+        最终会保存助手回复，并返回前端统一使用的 ChatResponse。
+        """
         import time as _time
         _t0 = _time.time()
         store.ensure_session(session_id)
@@ -301,9 +313,15 @@ class CoordinatorAgent:
         """按真实执行节点输出规划进度事件，最后输出 ChatResponse。"""
 
         def event(payload: dict[str, Any]) -> str:
+            """把进度或最终响应包装成前端按行读取的 JSON 字符串。"""
             return json.dumps(payload, ensure_ascii=False) + "\n"
 
         def progress(index: int, status: str, desc: str) -> str:
+            """构造一个规划进度事件。
+
+            index 对应前端进度步骤，status 表示 active/done/failed，
+            desc 是当前阶段给用户看的简短说明。
+            """
             return event(
                 {
                     "type": "progress",
@@ -722,7 +740,12 @@ class CoordinatorAgent:
         indoor_only: bool,
         limit: int,
     ) -> list[dict]:
-        """通过成员二推荐服务获取个性化替代地点。"""
+        """通过成员二推荐服务获取个性化替代地点。
+
+        函数会从 session store 中取最近一次 TravelRequest，构造最小 RecommendationContext，
+        让成员二推荐 Agent 重新给出候选地点；随后排除原地点，并按室内约束过滤结果。
+        如果推荐链路异常或没有历史需求，则返回空列表让调用方降级到数据库筛选。
+        """
         try:
             integration = self.recommendation_integration_service
             agent = integration.recommendation_agent
@@ -760,7 +783,11 @@ class CoordinatorAgent:
             return []
 
     def _conversation_context(self, session_id: str) -> list[str]:
-        """读取当前会话历史，传给成员二保留上下文。"""
+        """读取当前会话历史，传给成员二保留上下文。
+
+        只返回非空的用户和助手消息正文，过滤系统状态等结构化内容。
+        成员二推荐服务可以利用这些历史理解用户前面提到的偏好和约束。
+        """
 
         return [
             message.content
@@ -774,7 +801,12 @@ class CoordinatorAgent:
         requirements,
         recommendation_output: dict,
     ) -> dict | None:
-        """把成员二候选资源编排成成员三可继续修改的初始行程。"""
+        """把成员二候选资源编排成成员三可继续修改的初始行程。
+
+        这是早期规则编排入口：从推荐结果中取景点、餐厅和酒店，
+        调用 itinerary_planner 生成初始行程，保存到版本库，并把当前 itinerary_id/version
+        写回会话，便于后续智能调整。
+        """
 
         result = recommendation_output.get("recommendation_result") or {}
         attractions = result.get("attractions") or []
@@ -804,10 +836,20 @@ class CoordinatorAgent:
         return saved_itinerary.model_dump(mode="json")
 
     def _is_smalltalk(self, message: str) -> bool:
+        """判断消息是否为寒暄或过短文本。
+
+        这类输入不携带足够旅行规划信息，可用于跳过复杂推荐和规划流程。
+        """
         text = message.strip()
         return text in {"你好", "您好", "hi", "hello", "嗨", "你猜"} or len(text) <= 2
 
     async def stream_run(self, session_id: str, message: str):
+        """处理流式聊天请求。
+
+        非 travel_qa 分支直接复用同步 run 并一次性返回 reply；
+        travel_qa 分支会先查询 RAG，再通过 ChatbotService.stream_travel_question
+        分段输出答案，最后把完整助手回复写入会话历史。
+        """
         store.ensure_session(session_id)
 
         intent = self.intent_agent.run(message)
@@ -1675,6 +1717,7 @@ def _resequence_times(
 
     # 解析时间
     def _parse(t: str) -> int:
+        """把 HH:MM 字符串转换成当天分钟数，解析失败返回 0。"""
         try:
             h, m = map(int, t.split(":"))
             return h * 60 + m
@@ -1682,6 +1725,7 @@ def _resequence_times(
             return 0
 
     def _fmt(minutes: int) -> str:
+        """把当天分钟数格式化为 HH:MM，超过 24 小时时按次日时间取模。"""
         h = (minutes // 60) % 24
         m = minutes % 60
         return f"{h:02d}:{m:02d}"

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from backend.prompts.itinerary_preference_critic_prompt import (
     ITINERARY_PREFERENCE_CRITIC_PROMPT,
@@ -30,12 +30,12 @@ class ItineraryPreferenceCritic:
     输出 SoftPreferenceEvaluation，供后续优化循环使用。
     """
 
-    def __init__(self, llm_callable: callable):
+    def __init__(self, llm_callable: Callable[[str], str]):
         """
         Args:
             llm_callable: LLM 调用函数，签名 (prompt: str) -> str（返回 JSON 字符串）
         """
-        self._llm = llm_callable
+        self._llm: Callable[[str], str] = llm_callable
 
     def evaluate(
         self,

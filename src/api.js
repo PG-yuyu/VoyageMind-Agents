@@ -43,6 +43,21 @@ export function registerAccount(username, password, nickname) {
   })
 }
 
+export function fetchUserState(userId) {
+  return request(`/history/state/${encodeURIComponent(userId)}`)
+}
+
+export function saveUserState(userId, username, state) {
+  return request(`/history/state/${encodeURIComponent(userId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      user_id: userId,
+      username,
+      state
+    })
+  })
+}
+
 export function sendMessage(sessionId, message) {
   return request('/chat/messages', {
     method: 'POST',

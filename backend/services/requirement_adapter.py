@@ -12,6 +12,11 @@ class RequirementAdapter:
     """
 
     def __init__(self, chatbot_service: ChatbotService | None = None) -> None:
+        """初始化需求适配器。
+
+        RequirementService 负责规则抽取，ChatbotService 负责补充自然语言里的隐含字段。
+        两者组合后向后续推荐、规划模块输出统一的 TravelRequest。
+        """
         self.requirement_service = RequirementService()
         self.chatbot_service = chatbot_service or ChatbotService()
 
@@ -21,6 +26,12 @@ class RequirementAdapter:
         message: str,
         existing_requirements: TravelRequest | None = None,
     ) -> RequirementExtractionResult:
+        """从用户消息中抽取或补全旅行需求。
+
+        先调用规则抽取器得到稳定结果，再让 Chatbot 尝试识别天数、预算、人数、
+        兴趣、区域偏好和步行限制等字段；最后合并两份结果并判断是否还缺少关键字段。
+        返回值会告诉总控是否需要追问，以及追问哪一个问题。
+        """
         rule_result = self.requirement_service.extract(
             session_id, message, existing_requirements
         )
@@ -63,6 +74,12 @@ class RequirementAdapter:
     def _merge_ai_payload(
         self, request: TravelRequest, payload: dict
     ) -> TravelRequest:
+        """把模型抽取结果合并到规则抽取出的 TravelRequest。
+
+        只接受 TravelRequest 支持的字段，并对数字、字符串和列表做基础类型转换。
+        城市字段限定为天津相关输入，travel_pace 限定为 relaxed/normal/compact，
+        避免模型把无关城市或非法枚举写入主流程。
+        """
         if not payload:
             return request
 
@@ -125,6 +142,11 @@ class RequirementAdapter:
 
     @staticmethod
     def _first_value(data: dict, keys: list[str]):
+        """按别名顺序读取第一个存在的字段值。
+
+        模型可能返回 days、travel_days、duration_days 等不同字段名，
+        这个方法把这些同义字段统一映射到 TravelRequest 的标准字段。
+        """
         for key in keys:
             if key in data:
                 return data[key]
@@ -132,6 +154,10 @@ class RequirementAdapter:
 
     @staticmethod
     def _list_value(value) -> list[str]:
+        """把模型输出归一化成字符串列表。
+
+        支持模型返回 list 或单个字符串；空字符串、空列表和无法表达偏好的值会被过滤掉。
+        """
         if isinstance(value, list):
             return [str(item).strip() for item in value if str(item).strip()]
         if isinstance(value, str) and value.strip():
@@ -140,6 +166,10 @@ class RequirementAdapter:
 
     @staticmethod
     def _missing_fields(request: TravelRequest) -> list[str]:
+        """检查当前规划必须补齐的关键字段。
+
+        目前规划流程至少需要天数和总预算；缺失字段会用于决定是否继续追问用户。
+        """
         missing_fields = []
         if not request.days:
             missing_fields.append("days")
@@ -149,6 +179,11 @@ class RequirementAdapter:
 
     @staticmethod
     def _follow_up_question(missing_fields: list[str]) -> str | None:
+        """根据缺失字段生成一句面向用户的追问。
+
+        只缺一个字段时精准追问；天数和预算都缺时合并成一个问题，减少对话轮次。
+        字段完整时返回 None，表示可以进入推荐和规划阶段。
+        """
         if missing_fields == ["days"]:
             return "计划玩几天？"
         if missing_fields == ["total_budget"]:

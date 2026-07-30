@@ -40,6 +40,11 @@ tts_service = DashScopeTtsService()
 
 
 def _env_default(name: str, fallback: str) -> str:
+    """读取环境变量默认值。
+
+    用于 Pydantic 字段的 default_factory，让 TTS 模型、音色和格式可以通过 .env 调整；
+    如果环境变量未配置，则返回代码内置的 fallback。
+    """
     # Pydantic 的 default_factory 在请求建模时读取环境变量，便于 .env 调整默认音色。
     return os.environ.get(name, fallback)
 
@@ -78,6 +83,10 @@ class GuideTtsRequest(BaseModel):
 
 
 def ok(data=None, message: str = "\u64cd\u4f5c\u6210\u529f") -> ApiResponse:
+    """构造统一成功响应。
+
+    voice_api 内部所有成功接口都返回 ApiResponse，便于前端用同一套 data/message 结构处理结果。
+    """
     return ApiResponse(data=data, message=message)
 
 
@@ -88,11 +97,11 @@ async def understand_voice(
     client_hint: str = Form(""),
     audio: UploadFile = File(...),
 ) -> ApiResponse:
-    """Unified voice input endpoint.
+    """接收浏览器录音并转换成下游 Agent 可处理的文本。
 
-    The frontend uploads the real recording so the user can play it back.
-    The backend uses an AI ASR service to transcribe audio, then uses the
-    project Chatbot to correct noisy text before sending it to downstream agents.
+    前端上传真实音频文件、场景和可选识别提示；后端先调用 ASR 得到原始转写，
+    再用 Chatbot 按场景纠错和规范化，例如修正数字、预算、景点名和步行限制。
+    返回 understood_text 给规划、问答、导游或调整流程继续使用，同时保留 raw_transcript 和错误信息便于调试。
     """
 
     audio_bytes = await audio.read()
@@ -185,6 +194,11 @@ def _audio_media_type(suffix: str) -> str:
 
 
 async def _transcribe_audio(audio_bytes: bytes, filename: str) -> tuple[str, str]:
+    """异步封装 ASR 转写入口。
+
+    FastAPI 接口运行在事件循环中，真实 ASR、ffmpeg 和网络请求都是阻塞操作；
+    因此这里先处理空音频，再把同步转写逻辑放到线程池执行，避免阻塞其他请求。
+    """
     if not audio_bytes:
         return "", "empty_audio"
 
@@ -192,6 +206,11 @@ async def _transcribe_audio(audio_bytes: bytes, filename: str) -> tuple[str, str
 
 
 def _transcribe_audio_sync(audio_bytes: bytes, filename: str) -> tuple[str, str]:
+    """根据 ASR_PROVIDER 环境变量选择具体语音识别后端。
+
+    支持 baidu、sensevoice/funasr 和 openai-compatible 三类 provider。
+    返回值统一为 (识别文本, 错误信息)，成功时错误信息为空，失败时文本为空。
+    """
     load_dotenv(override=False, encoding="utf-8-sig")
     provider = os.environ.get("ASR_PROVIDER", "baidu").strip().lower()
 
@@ -209,6 +228,11 @@ def _transcribe_audio_sync(audio_bytes: bytes, filename: str) -> tuple[str, str]
 
 
 def _transcribe_with_baidu(audio_bytes: bytes, filename: str) -> tuple[str, str]:
+    """使用百度短语音识别接口转写浏览器录音。
+
+    函数先读取百度 API Key、Secret、CUID 和 dev_pid，再调用 ffmpeg 把浏览器音频转成
+    16k 单声道 wav，最后请求百度 server_api。任何配置、转码或接口错误都会以字符串返回。
+    """
     api_key = os.environ.get("BAIDU_ASR_API_KEY") or os.environ.get("BAIDU_APP_KEY")
     secret_key = os.environ.get("BAIDU_ASR_SECRET_KEY") or os.environ.get("BAIDU_SECRET_KEY")
     cuid = os.environ.get("BAIDU_ASR_CUID") or os.environ.get("BAIDU_APP_ID") or "voyagemind-member1"
@@ -255,6 +279,11 @@ def _transcribe_with_baidu(audio_bytes: bytes, filename: str) -> tuple[str, str]
 
 
 def _get_baidu_access_token(api_key: str, secret_key: str) -> tuple[str, str]:
+    """向百度 OAuth 接口申请 ASR access_token。
+
+    百度语音识别接口需要先用 API Key 和 Secret 换取 token。
+    成功返回 (token, "")，失败返回 ("", 错误信息)，调用方据此决定是否继续识别。
+    """
     query = urllib.parse.urlencode(
         {
             "grant_type": "client_credentials",
@@ -278,6 +307,12 @@ def _get_baidu_access_token(api_key: str, secret_key: str) -> tuple[str, str]:
 
 
 def _convert_audio_to_wav_16k(audio_bytes: bytes, filename: str) -> tuple[bytes, str]:
+    """调用 ffmpeg 把浏览器音频转为百度 ASR 需要的 16k 单声道 wav。
+
+    浏览器通常上传 webm/opus，百度短语音接口对 wav 更稳定。
+    这里会创建临时输入和输出文件，执行 ffmpeg 转码，读取 wav 字节后清理临时文件。
+    如果本机没有安装 ffmpeg 或转码失败，会返回空字节和错误信息。
+    """
     suffix = Path(filename).suffix or ".webm"
     input_path = ""
     output_path = ""
@@ -327,6 +362,11 @@ def _convert_audio_to_wav_16k(audio_bytes: bytes, filename: str) -> tuple[bytes,
 
 
 def _transcribe_with_sensevoice(audio_bytes: bytes, filename: str) -> tuple[str, str]:
+    """使用本地 FunASR/SenseVoice 模型进行语音识别。
+
+    该分支适合离线或本地模型部署场景：先动态导入 funasr.AutoModel，
+    再把上传音频写入临时文件并调用 model.generate，最后提取纯文本并清理临时文件。
+    """
     model_name = os.environ.get("ASR_MODEL", "iic/SenseVoiceSmall")
     suffix = Path(filename).suffix or ".webm"
     temp_path = ""
@@ -367,6 +407,11 @@ def _transcribe_with_sensevoice(audio_bytes: bytes, filename: str) -> tuple[str,
 
 
 def _extract_sensevoice_text(result) -> str:
+    """从 SenseVoice/FunASR 返回结果中提取干净文本。
+
+    FunASR 可能返回 list、dict 或其他对象，并常带有 <|zh|> 这类标签。
+    该函数统一拼接 text 字段，并移除模型标签，得到可展示和可纠错的中文文本。
+    """
     if isinstance(result, list) and result:
         text = " ".join(str(item.get("text", "")) for item in result if isinstance(item, dict))
     elif isinstance(result, dict):
@@ -377,6 +422,12 @@ def _extract_sensevoice_text(result) -> str:
 
 
 def _transcribe_with_openai_compatible(audio_bytes: bytes, filename: str) -> tuple[str, str]:
+    """使用 OpenAI 或兼容 OpenAI 接口的 Whisper ASR 服务识别音频。
+
+    从 ASR_API_KEY/OPENAI_API_KEY、ASR_BASE_URL 和 ASR_MODEL 读取配置，
+    把上传的音频字节包装成文件对象后调用 audio.transcriptions.create。
+    适合接入官方 Whisper 或第三方兼容服务。
+    """
     api_key = os.environ.get("ASR_API_KEY") or os.environ.get("OPENAI_API_KEY")
     base_url = os.environ.get("ASR_BASE_URL") or None
     model = os.environ.get("ASR_MODEL", "whisper-1")
@@ -404,6 +455,12 @@ def _transcribe_with_openai_compatible(audio_bytes: bytes, filename: str) -> tup
 
 
 def _understand_with_chatbot(raw_hint: str, scene: str) -> str:
+    """用 Chatbot 修正 ASR 原始文本。
+
+    ASR 容易把口语数字、预算金额、景点名和约束词识别错；
+    这里先准备本地兜底文本，再让 Chatbot 根据当前场景把原始识别结果改写成自然中文请求。
+    模型不可用时直接返回本地规范化结果。
+    """
     fallback = _normalize_locally(raw_hint, scene)
     try:
         chatbot = ChatbotService()
@@ -428,6 +485,11 @@ def _understand_with_chatbot(raw_hint: str, scene: str) -> str:
 
 
 def _normalize_locally(text: str, scene: str) -> str:
+    """不依赖模型的本地语音文本规范化。
+
+    主要做空白压缩和少量常见中文数字替换；规划场景下，如果文本包含天津但没有
+    “帮我”开头，会补成更像用户请求的句子，方便下游意图识别。
+    """
     cleaned = " ".join(text.split())
     replacements = {
         "\u4e8c\u5929": "\u4e24\u5929",
@@ -444,6 +506,11 @@ def _normalize_locally(text: str, scene: str) -> str:
 
 
 def _fallback_text(scene: str) -> str:
+    """根据语音使用场景返回默认文本。
+
+    当 ASR 没有识别结果且前端也没有 hint 时，用这个默认文本保证接口仍能返回可演示内容。
+    不同场景分别对应问答、导游、行程调整和行程规划。
+    """
     if scene == "qa":
         return "\u5929\u6d25\u6709\u54ea\u4e9b\u9002\u5408\u7b2c\u4e00\u6b21\u53bb\u7684\u666f\u70b9\uff1f"
     if scene == "guide":
@@ -454,6 +521,11 @@ def _fallback_text(scene: str) -> str:
 
 
 def _display_text(scene: str) -> str:
+    """生成前端语音气泡里展示的简短状态文案。
+
+    display_text 不等于真实识别文本，只用于告诉用户“已经发送了哪类语音请求”。
+    这样前端可以隐藏冗长 ASR 过程，同时保持交互反馈清晰。
+    """
     if scene == "qa":
         return "\u5df2\u53d1\u9001\u4e00\u6761\u8bed\u97f3\u95ee\u9898"
     if scene == "guide":

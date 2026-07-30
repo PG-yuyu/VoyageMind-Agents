@@ -58,9 +58,7 @@ class AdjustmentAgent:
             alternative_place_fetcher: 获取替代地点的函数，签名:
                 (original_place_id, constraints) -> list[dict]
         """
-        self._llm = llm_callable
-        if self._llm is None:
-            self._llm = self._resolve_llm()
+        self._llm: Callable[[str], str] = llm_callable or self._resolve_llm()
         self._fetch_alternatives = alternative_place_fetcher
 
     @staticmethod
@@ -110,11 +108,17 @@ class AdjustmentAgent:
         session_id = req.get("session_id", "")
         itinerary_id = req.get("itinerary_id", "")
         base_version = req.get("base_version", 1)
-        action = req.get("action", "")
-        target_day = req.get("target_day")
-        target_item_id = req.get("target_item_id")
-        new_constraints = req.get("new_constraints", {})
-        original_text = req.get("original_text", "")
+        action = str(req.get("action") or "")
+        raw_target_day = req.get("target_day")
+        try:
+            target_day: int | None = int(raw_target_day) if raw_target_day else None
+        except (TypeError, ValueError):
+            target_day = None
+        raw_target_item_id = req.get("target_item_id")
+        target_item_id = str(raw_target_item_id) if raw_target_item_id else None
+        raw_constraints = req.get("new_constraints")
+        new_constraints = raw_constraints if isinstance(raw_constraints, dict) else {}
+        original_text = str(req.get("original_text") or "")
         action = _normalize_adjust_action(action, original_text)
         current_itinerary_dict = req.get("current_itinerary")
 
@@ -196,8 +200,9 @@ class AdjustmentAgent:
             # 前端传了 item_id，查找对应的 place_id
             resolved_place_id = _find_place_id_by_item(old_dict, target_item_id)
 
-        replacement_places = []
-        if self._fetch_alternatives and action in (
+        replacement_places: list[dict[str, Any]] = []
+        fetch_alternatives = self._fetch_alternatives
+        if fetch_alternatives is not None and action in (
             "replace_attraction", "replace_restaurant", "change_to_indoor",
         ):
             try:
@@ -205,7 +210,7 @@ class AdjustmentAgent:
                 fetch_constraints = dict(new_constraints or {})
                 if action == "change_to_indoor":
                     fetch_constraints["indoor"] = True
-                alt = self._fetch_alternatives(
+                alt = fetch_alternatives(
                     original_place_id=resolved_place_id or target_item_id,
                     constraints=fetch_constraints,
                 )
@@ -361,6 +366,17 @@ class AdjustmentAgent:
                         item.clear()
                         item.update(orig)
 
+        # LLM 只能使用 replacement_places 中的替代地点；不在白名单里的新地点全部回滚或改成候选。
+        if action in ("replace_attraction", "replace_restaurant", "change_to_indoor"):
+            _enforce_replacement_whitelist(
+                replan_days=replan_days,
+                old_dict=old_dict,
+                action=action,
+                target_item_id=target_item_id,
+                replacement_places=replacement_places,
+                unlocked_items=set(unlocked_items),
+            )
+
         # ── 5. 质量验证 + 合并 ───────────────────────────────────
         logger.warning(
             "🔍 ADJUST MERGE: starting | replan_days=%d is_global=%s target_item_id=%s",
@@ -417,6 +433,8 @@ class AdjustmentAgent:
                             orig = orig_by_id.get(iid)
                             if not iid:
                                 continue  # 丢弃无 ID 的幻觉项
+                            if orig is None:
+                                continue
                             if iid == target_item_id:
                                 # 目标项：保留大模型的修改，但补全 place_id（大模型可能只改 note）
                                 if item.get("place_id") == orig.get("place_id") and replacement_places:
@@ -599,7 +617,7 @@ def _day_items(itinerary: dict, day_num: int) -> list[dict]:
     return []
 
 
-def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
+def _demo_llm(prompt: str, alt_places: list[dict[str, Any]] | None = None) -> str:
     """开发用占位 LLM 调用 — 无 API Key 时的自动降级方案。
 
     会解析 prompt 中的行程数据和修改意图，做基本的结构化调整，
@@ -695,7 +713,8 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
             "replan_notes": [f"Demo LLM: 未找到第 {target_day} 天"],
         }, ensure_ascii=False)
 
-    original_items = target_day_obj.get("items", [])
+    target_day_data: dict[str, Any] = target_day_obj
+    original_items = target_day_data.get("items", [])
 
     # ── 从用户输入提取关键词，用于精确匹配 ──────────
     # 从 prompt 中提取用户原话
@@ -709,8 +728,8 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
             orig_text = ""
     keywords = _extract_keywords(orig_text, action)
     # ── 替代资源：优先用参数传入的，否则从 prompt 解析 ──────────
-    if alt_places is None:
-        alt_places = []
+    safe_alt_places: list[dict[str, Any]] = alt_places if isinstance(alt_places, list) else []
+    if not safe_alt_places:
         alt_m = re.search(
             r'## 替代资源[^\n]*\n(.*?)(?:\n\s*##\s*可用路线|\n\s*##\s*必须遵守)',
             prompt, re.DOTALL,
@@ -719,11 +738,15 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
             alt_raw = alt_m.group(1).strip()
             if alt_raw and alt_raw != "[]":
                 try:
-                    alt_places = json.loads(alt_raw)
+                    parsed_alt_places = json.loads(alt_raw)
+                    if isinstance(parsed_alt_places, list):
+                        safe_alt_places = [
+                            item for item in parsed_alt_places if isinstance(item, dict)
+                        ]
                 except json.JSONDecodeError:
                     pass
     logger.info("Demo LLM: action=%s keywords=%s alt_places=%d orig_text=%s",
-                action, keywords, len(alt_places), orig_text[:60])
+                action, keywords, len(safe_alt_places), orig_text[:60])
 
     # ── reduce_walking 全局处理：遍历所有天 ──────────────────────
     if action == "reduce_walking":
@@ -800,7 +823,7 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
     if action == "change_to_indoor":
         # 只取景点类型，排除误入的餐厅
         indoor_places = [
-            p for p in (alt_places or [])
+            p for p in safe_alt_places
             if isinstance(p, dict) and p.get("place_type") == "attraction"
         ]
         all_result_days = []
@@ -875,7 +898,8 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
         place_id = it.get("place_id", "")
         note = it.get("note", "") or ""
         # 从 _place 引用或 note 中获取可搜索文本
-        place_ref = it.get("_place") or {}
+        place_ref_raw = it.get("_place")
+        place_ref = place_ref_raw if isinstance(place_ref_raw, dict) else {}
         search_text = f"{place_ref.get('name', '')} {note} {place_id}".lower()
 
         # ── 关键词匹配：有关键词时只改匹配项 ──────────
@@ -885,7 +909,7 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
 
         if action == "replace_attraction" and item_type == "attraction":
             # 替换景点：优先用推荐服务返回的真实替代地点
-            alt_place = _pick_replacement(alt_places, item_type)
+            alt_place = _pick_replacement(safe_alt_places, item_type)
             if alt_place:
                 it["place_id"] = alt_place.get("place_id", it.get("place_id", ""))
                 it["_place"] = alt_place
@@ -929,10 +953,10 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
 
     result_day = {
         "day": target_day,
-        "date": target_day_obj.get("date", ""),
+        "date": target_day_data.get("date", ""),
         "items": modified_items,
         "daily_cost": round(new_daily_cost, 2),
-        "walking_distance_m": target_day_obj.get("walking_distance_m", 0),
+        "walking_distance_m": target_day_data.get("walking_distance_m", 0),
         "start_time": modified_items[0]["start_time"] if modified_items else "09:00",
         "end_time": modified_items[-1]["end_time"] if modified_items else "18:00",
     }
@@ -948,7 +972,10 @@ def _demo_llm(prompt: str, alt_places: list[dict] | None = None) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
-def _pick_replacement(replacement_places: list[dict], item_type: str) -> dict | None:
+def _pick_replacement(
+    replacement_places: list[dict[str, Any]],
+    item_type: str,
+) -> dict[str, Any] | None:
     """从替代资源列表中选一个同类型的地点。"""
     candidates = [
         p for p in replacement_places
@@ -957,6 +984,116 @@ def _pick_replacement(replacement_places: list[dict], item_type: str) -> dict | 
     if not candidates:
         candidates = [p for p in replacement_places if isinstance(p, dict)]
     return candidates[0] if candidates else None
+
+
+def _enforce_replacement_whitelist(
+    replan_days: list[dict[str, Any]],
+    old_dict: dict,
+    action: str,
+    target_item_id: str | None,
+    replacement_places: list[dict[str, Any]],
+    unlocked_items: set[str],
+) -> None:
+    """强制替换结果只能使用系统给出的候选地点。
+
+    LLM 可能在 note 或 place_id 中编造新的景点。这里按 item_id 找到原始项：
+    新 place_id 不在 replacement_places 白名单内时，如果有候选则改成候选；
+    没有候选时回滚为原始项。同时同步 note、费用和 _place，避免前端继续显示旧详情。
+    """
+    allowed: dict[str, dict[str, Any]] = {
+        str(p.get("place_id")): p
+        for p in replacement_places
+        if isinstance(p, dict) and p.get("place_id")
+    }
+    old_by_id = {
+        item.get("item_id", ""): dict(item)
+        for day in old_dict.get("days", [])
+        for item in day.get("items", [])
+        if item.get("item_id")
+    }
+    used_allowed: set[str] = set()
+
+    def choose_candidate(item_type: str, old_pid: str) -> dict | None:
+        for place in replacement_places:
+            if not isinstance(place, dict):
+                continue
+            pid = str(place.get("place_id") or "")
+            if not pid or pid == old_pid or pid in used_allowed:
+                continue
+            ptype = place.get("place_type")
+            if item_type in ("lunch", "dinner", "restaurant"):
+                if ptype == "restaurant":
+                    used_allowed.add(pid)
+                    return place
+            elif ptype == "attraction":
+                used_allowed.add(pid)
+                return place
+        return None
+
+    for day in replan_days:
+        for item in day.get("items", []):
+            iid = item.get("item_id") or ""
+            if not iid:
+                continue
+            if target_item_id and iid != target_item_id:
+                continue
+            if not target_item_id and iid not in unlocked_items:
+                continue
+
+            orig = old_by_id.get(iid)
+            if not orig:
+                continue
+
+            item_type = item.get("item_type") or orig.get("item_type") or ""
+            if item_type not in ("attraction", "lunch", "dinner", "restaurant"):
+                continue
+
+            old_pid = str(orig.get("place_id") or "")
+            new_pid = str(item.get("place_id") or "")
+            changed = bool(new_pid and new_pid != old_pid)
+            text_changed = (
+                str(item.get("note") or "") != str(orig.get("note") or "")
+                or str(item.get("title") or "") != str(orig.get("title") or "")
+            )
+            must_replace = bool(target_item_id and iid == target_item_id)
+
+            if changed and new_pid in allowed:
+                _apply_replacement_place(item, allowed[new_pid])
+                continue
+
+            if changed and new_pid not in allowed:
+                candidate = choose_candidate(item_type, old_pid)
+                if candidate:
+                    _apply_replacement_place(item, candidate)
+                else:
+                    item.clear()
+                    item.update(orig)
+                continue
+
+            if action in ("replace_attraction", "replace_restaurant", "change_to_indoor") and (
+                must_replace or text_changed
+            ):
+                candidate = choose_candidate(item_type, old_pid)
+                if candidate:
+                    _apply_replacement_place(item, candidate)
+                else:
+                    item.clear()
+                    item.update(orig)
+
+
+def _apply_replacement_place(item: dict, place: dict) -> None:
+    """把白名单候选地点写入行程项，并同步前端展示需要的字段。"""
+    item["place_id"] = place.get("place_id", item.get("place_id", ""))
+    item["_place"] = place
+    item["note"] = place.get("name") or item.get("note") or ""
+    price = place.get("price")
+    if price is not None:
+        try:
+            value = float(price)
+            item["cost_per_person"] = value
+            item["total_cost"] = value
+        except (TypeError, ValueError):
+            pass
 
 
 def _resolve_target_item(

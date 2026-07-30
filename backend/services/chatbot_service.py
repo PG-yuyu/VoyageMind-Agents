@@ -16,12 +16,23 @@ class ChatbotService:
     """
 
     def __init__(self) -> None:
+        """初始化 Chatbot 封装状态并尝试加载内置聊天引擎。
+
+        engine 保存真实 ChatEngine 实例，available 表示当前是否可用，
+        error 保存最近一次加载或调用失败原因，供兜底逻辑和调试提示使用。
+        """
         self.engine = None
         self.available = False
         self.error = None
         self._try_load_chat_engine()
 
     def _try_load_chat_engine(self) -> None:
+        """加载项目内置 langchain-chat 引擎。
+
+        该函数负责定位 vendor 目录、读取 .env、临时切换工作目录并实例化 ChatEngine。
+        加载失败时不会抛出异常，而是记录 error 并保持 available=False，
+        让上层 Agent 可以继续使用规则兜底结果完成联调。
+        """
         project_root = Path(__file__).resolve().parents[2]
         vendor_root = project_root / "backend" / "vendor" / "langchain_chat"
         chat_root = vendor_root
@@ -106,6 +117,11 @@ class ChatbotService:
         return parsed if parsed is not None else fallback
 
     def summarize_agent_reply(self, message: str, context: dict) -> str:
+        """把结构化工作流结果整理成用户可读回复。
+
+        规划和修改分支以 itinerary、diff、budget 等结构化数据为准，只做简短提示；
+        普通问答或其他上下文才调用 Chatbot 润色。模型不可用或调用失败时返回规则兜底文案。
+        """
         branch = context.get("branch")
         if branch in {"create_trip", "modify_trip"}:
             # 规划和修改结果以结构化数据为准，回复文案只做简短总结，不额外编造路线或预算。
@@ -129,6 +145,11 @@ class ChatbotService:
     def answer_travel_question(
         self, question: str, rag_result: dict | None = None
     ) -> str:
+        """回答天津旅行问答。
+
+        优先结合 RAGService 返回的资料证据组织答案；如果没有证据，也允许基于通用天津旅行常识回答。
+        这样前端问答不会因为资料库没命中就只显示空模板。
+        """
         if not self.available or self.engine is None:
             return self._fallback_travel_answer(question, rag_result)
 
@@ -150,12 +171,22 @@ class ChatbotService:
     async def stream_travel_question(
         self, question: str, rag_result: dict | None = None
     ) -> AsyncIterator[str]:
+        """以模拟流式方式输出旅行问答答案。
+
+        先复用同步问答函数得到完整答案，再按固定字符长度切片异步 yield，
+        供前端实现逐段显示效果。
+        """
         answer = self.answer_travel_question(question, rag_result)
         for index in range(0, len(answer), 12):
             yield answer[index : index + 12]
             await asyncio.sleep(0.015)
 
     def _parse_json_object(self, text: str) -> dict[str, Any] | None:
+        """从模型回复中提取 JSON 对象。
+
+        支持模型把 JSON 包在 markdown 代码块里的情况；只返回 dict，
+        解析失败或顶层不是对象时返回 None，让 chat_json 触发重试或兜底。
+        """
         clean = text.strip()
         if clean.startswith("```"):
             clean = clean.strip("`")
@@ -171,6 +202,11 @@ class ChatbotService:
         return value if isinstance(value, dict) else None
 
     def _fallback_reply(self, context: dict) -> str:
+        """根据工作流上下文生成不依赖模型的兜底回复。
+
+        create_trip、modify_trip、travel_qa 和缺字段追问分别走不同模板，
+        只引用上下文里已有的结构化数据，不额外编造路线、预算或资料来源。
+        """
         branch = context.get("branch")
         if branch == "create_trip":
             requirements = (context.get("requirements") or {}).get("requirements") or {}
@@ -216,6 +252,11 @@ class ChatbotService:
     def _fallback_travel_answer(
         self, question: str, rag_result: dict | None = None
     ) -> str:
+        """在 Chatbot 不可用时生成旅行问答兜底答案。
+
+        如果 RAG 命中了资料，优先列出资料来源和片段；否则根据关键词给出天津旅行常识建议。
+        兜底答案会明确提醒开放时间、票价等动态信息以官方为准。
+        """
         sources = (rag_result or {}).get("sources") or []
         if sources:
             lines = ["我在资料库里找到了这些依据："]

@@ -115,8 +115,8 @@ def _make_alt_fetcher(session_id: str = "", itinerary_id: str = ""):
     """创建替代地点获取函数。
 
     优先从当前 session 缓存的推荐候选中筛选未被选中的，
-    降级到 PlaceRepository 全量查询。
-    不再调用成员二推荐（已有缓存，无需重复 LLM 调用）。
+    不再降级到 PlaceRepository 全量查询。
+    调整只能使用系统已经推荐给用户的地点，避免 LLM 或数据库兜底生成演示中没有出现过的景点。
     """
     from backend.services.session_store import store as _store
 
@@ -162,31 +162,7 @@ def _make_alt_fetcher(session_id: str = "", itinerary_id: str = ""):
             if candidates:
                 return candidates[:limit]
 
-        # ── 方案 B：PlaceRepository 全量查询 ──────────────
-        try:
-            from backend.app.repositories import PlaceRepository
-            repo = PlaceRepository()
-            orig = repo.get_by_id(original_place_id)
-            target_type = getattr(orig, "place_type", None) if orig else None
-            if target_type == "attraction":
-                all_p = repo.list_attractions()
-            elif target_type == "restaurant":
-                all_p = repo.list_restaurants()
-            else:
-                all_p = repo.list_attractions() + repo.list_restaurants()
-            candidates = []
-            for p in all_p:
-                pd = p.to_dict()
-                if pd.get("place_id") == original_place_id:
-                    continue
-                if indoor_only:
-                    tags = pd.get("tags", []) or []
-                    if not any("室内" in (t or "") for t in tags if t):
-                        continue
-                candidates.append(pd)
-            return candidates[:limit]
-        except Exception:
-            return []
+        return []
     return fetcher
 
 

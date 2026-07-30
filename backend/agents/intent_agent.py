@@ -14,10 +14,21 @@ class IntentAgent:
     """
 
     def __init__(self, chatbot_service: ChatbotService | None = None) -> None:
+        """初始化意图识别 Agent。
+
+        创建规则意图识别服务作为稳定兜底，同时接收可注入的 ChatbotService，
+        方便测试或总控工作流复用同一个模型封装，避免重复加载模型配置。
+        """
         self.intent_service = IntentService()
         self.chatbot_service = chatbot_service or ChatbotService()
 
     def run(self, message: str) -> IntentResult:
+        """识别用户消息的一二级意图。
+
+        先用规则服务得到 fallback，保证模型不可用时也能分流；短寒暄直接返回规则结果。
+        其他输入交给 Chatbot 输出 JSON，再通过 _normalize_result 做合法性校验，
+        最终返回 create_trip / modify_trip / travel_qa 之一。
+        """
         fallback = self.intent_service.detect(message)
         if self._is_smalltalk(message):
             return fallback
@@ -44,6 +55,11 @@ class IntentAgent:
     def _normalize_result(
         self, result: dict, fallback: IntentResult, message: str
     ) -> IntentResult:
+        """校验并归一化模型返回的意图 JSON。
+
+        只接受白名单内的一级意图和修改子意图；置信度无法转换或过低时使用规则结果。
+        这样可以防止模型输出拼写错误、未知标签或低置信度判断污染后续工作流。
+        """
         valid_intents = {"create_trip", "modify_trip", "travel_qa"}
         valid_sub_intents = {
             "replace_attraction",
@@ -75,5 +91,9 @@ class IntentAgent:
         )
 
     def _is_smalltalk(self, message: str) -> bool:
+        """判断输入是否只是寒暄或过短文本。
+
+        这类文本信息量不足，不值得调用大模型识别旅行意图，直接走规则兜底即可。
+        """
         text = message.strip().lower()
         return text in {"你好", "您好", "hi", "hello", "嗨", "你猜"} or len(text) <= 2
